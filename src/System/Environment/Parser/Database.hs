@@ -43,13 +43,11 @@ data Provider = Postgres { providerName :: S.ByteString }
 -- a URL-style database configuration. For example consider the following
 -- URLs
 --
--- @
--- postgres://user3123:passkja83kd8@ec2-117-21-174-214.compute-1.amazonaws.com:6212/db982398
--- mysql://adffdadf2341:adf4234@us-cdbr-east.cleardb.com/heroku_db?reconnect=true
--- mysql2://adffdadf2341:adf4234@us-cdbr-east.cleardb.com/heroku_db?reconnect=true
--- http://user:pass@instance.ip/resourceid
--- amqp://user:pass@ec2.clustername.cloudamqp.com/vhost
--- @
+-- > postgres://user3123:passkja83kd8@ec2-117-21-174-214.compute-1.amazonaws.com:6212/db982398
+-- > mysql://adffdadf2341:adf4234@us-cdbr-east.cleardb.com/heroku_db?reconnect=true
+-- > mysql2://adffdadf2341:adf4234@us-cdbr-east.cleardb.com/heroku_db?reconnect=true
+-- > http://user:pass@instance.ip/resourceid
+-- > amqp://user:pass@ec2.clustername.cloudamqp.com/vhost
 --
 -- We assume that all the information in these URLs is provided---if
 -- a username or password is unnecessary then it must be passed as an empty

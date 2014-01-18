@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 -- |
 -- Module      : System.Environment.Parser.Internal
@@ -12,6 +14,8 @@ module System.Environment.Parser.Internal where
 
 import           Control.Applicative
 import           Control.Monad
+import qualified Data.Aeson                 as Ae
+import qualified Data.Aeson.Types           as Ae
 import qualified Data.Attoparsec.Text       as At
 import qualified Data.ByteString            as S
 import qualified Data.ByteString.Char8      as S8
@@ -23,8 +27,6 @@ import qualified Data.Text.Lazy             as TL
 import           Data.Time
 import qualified System.Environment         as Env
 import           System.Locale
-import qualified Data.Aeson                 as Ae
-import qualified Data.Aeson.Types           as Ae
 
 -- ----------------------------------------------------------------------------
 -- Getting to the environment
@@ -116,27 +118,24 @@ instance FromEnv NominalDiffTime where
 -- | Assumes first that the date is formatted as the W3C Profile of ISO
 -- 8601 but also implements a few other formats.
 --
--- @ 
--- %Y-%m-%dT%H:%M:%S%Q%z
+-- > %Y-%m-%dT%H:%M:%S%Q%z
+-- >
+-- > 1997-07-16T19:20:30.45+01:00
+-- > 1997-07-16T19:20:30.45Z
+-- > 1997-07-16T19:20:30Z
 --
--- 1997-07-16T19:20:30.45+01:00
--- 1997-07-16T19:20:30.45Z
--- 1997-07-16T19:20:30Z
--- @
---
--- @
--- %a %b %_d %H:%M:%S %z %Y
---
--- Sat Jan 18 22:20:02 +0000 2014
--- Sat Jan 18 22:20:02 2014
--- Jan 18 22:20:02 2014
--- @
+-- > %a %b %_d %H:%M:%S %z %Y
+-- >
+-- > Sat Jan 18 22:20:02 +0000 2014
+-- > Sat Jan 18 22:20:02 2014
+-- > Jan 18 22:20:02 2014
+-- 
 instance FromEnv UTCTime where
-  parseEnv s = 
-    e "bad UTC time" 
+  parseEnv s =
+    e "bad UTC time"
     $ msum $ map (\format -> parseTime defaultTimeLocale format s) formats
 
-    where 
+    where
       formats =
         [ "%Y-%m-%dT%H:%M:%S%Q%z"
         , "%Y-%m-%dT%H:%M:%S%QZ"
