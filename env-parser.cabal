@@ -29,6 +29,10 @@ build-type:          Simple
 extra-source-files:  ChangeLog
 cabal-version:       >=1.10
 
+source-repository head
+  type: git
+  location: git://github.com/tel/env-parser.git
+
 library
   exposed-modules:     
     System.Environment.Parser.Internal
