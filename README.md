@@ -7,10 +7,10 @@ from the environment. It's goals and design are similar to that of `cmdargs` or
 executed and configured manually and more for automatically managed programs
 such as those that might be run via Heroku or Runit/daemontools.
 
-`env-parser` focuses on making ENV-configured programs both easy to build,
-declarative, self-documenting, and easy to test. It also provides a number of
-built-in parsers which make it easy to build programs that depend upon
-environment variables in a predictable, conventional fashion.
+`env-parser` focuses on making environment-configured programs both easy to
+build, declarative, self-documenting, and easy to test. It also provides a
+number of built-in parsers which make it easy to build programs that depend
+upon environment variables in a predictable, conventional fashion.
 
 ```haskell
 import qualified System.Environment.Parser as Env
