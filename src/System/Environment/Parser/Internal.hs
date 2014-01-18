@@ -62,7 +62,7 @@ class FromEnv a where
   parseEnv :: String -> Either String a
 
 instance FromEnv String where
-  parseEnv s = Right s
+  parseEnv = Right
 
 instance FromEnv S.ByteString where
   parseEnv s = Right (S8.pack s)
