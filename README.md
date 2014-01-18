@@ -31,7 +31,7 @@ envConfig = Config
   <*> envCred
 
   where
-    envConfig :: Env.Parser (Oauth.Cred Oauth.Permanent)
+    envCred :: Env.Parser (Oauth.Cred Oauth.Permanent)
     envCred = Oauth.Cred
       <$> Env.get "TWITTER_PERMANENT_TOKEN"
       <*> Env.get "TWITTER_PERMANENT_SECRET"
