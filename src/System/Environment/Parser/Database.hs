@@ -1,4 +1,14 @@
 
+-- |
+-- Module      : System.Environment.Parser.Database
+-- Copyright   : (c) Joseph Abrahamson 2013
+-- License     : MIT
+--
+-- Maintainer  : me@jspha.com
+-- Stability   : experimental
+-- Portability : non-portable
+--
+-- Heroku-style database connection URL parsing.
 module System.Environment.Parser.Database (
 
   DBConnection (..), Provider (..)
