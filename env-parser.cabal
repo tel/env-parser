@@ -1,0 +1,52 @@
+name:                env-parser
+version:             0.1.0.0
+synopsis:            Pull configuration information from the ENV
+description:         
+  @env-parser@ is a small library for configuring programs based on information
+  from the environment.
+  .
+  Command-line oriented programs tend to pull much of their runtime
+  configuration from command-line arguments and libraries such as @cmdargs@ are
+  useful for encoding this configuration in your program. For programs which
+  draw configuration from the environment, however, this must usually be done
+  manually.
+  .
+  @env-parser@ focuses on making ENV-configured programs both easy to build,
+  declarative, self-documenting, and easy to test.
+  .
+  A particular use case of this parser is to make it easy to build applications
+  which launch under Heroku-style infrastructure. We provide explicit parsers
+  for some of Heroku's conventions for this purpose.
+
+homepage:            http://github.com/tel/env-parser
+license:             MIT
+license-file:        LICENSE
+author:              Joseph Abrahamson
+maintainer:          me@jspha.com
+copyright:           2013 (c) Joseph Abrahamson
+category:            System
+build-type:          Simple
+extra-source-files:  ChangeLog
+cabal-version:       >=1.10
+
+library
+  exposed-modules:     
+    System.Environment.Parser.Internal
+    System.Environment.Parser.Database
+  build-depends:       base        >= 4.6       &&   <4.7
+
+                    -- Haskell Platform 2013.2.0.0
+
+                     , attoparsec  >= 0.10
+                     , mtl         >= 2.1
+                     , network     >= 2.4
+                     , text        >= 0.11
+                     , bytestring  >= 0.10
+                     , time        >= 1.4
+                     , containers  >= 0.4
+
+                    -- Others
+                     , http-types  >= 0.8
+
+  hs-source-dirs:      src
+  default-language:    Haskell2010

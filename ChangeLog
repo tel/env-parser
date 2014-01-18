@@ -1,0 +1,5 @@
+2014-01-18  Joseph Abrahamson <me@jspha.com>
+
+	* src/System/Environment/Parser/Internal.hs: Introduced flexible environment structure designed for multiple implementations for IO and testing.
+	* src/System/Environment/Parser/Internal.hs: FromEnv parsers for numbers and string types
+	* src/System/Environment/Parser/Database.hs: Introduced DBConnection type with FromEnv instance
