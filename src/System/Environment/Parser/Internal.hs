@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveFunctor        #-}
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
@@ -41,7 +42,7 @@ instance HasEnv IO where
 
 
 -- ----------------------------------------------------------------------------
--- A sneaky applicative
+-- The Env class
 
 class HasEnv r => Env r where
   liftFailure :: r (Either String a) -> r a
@@ -49,9 +50,23 @@ class HasEnv r => Env r where
 env :: (Env r, FromEnv a) => String -> r a
 env = liftFailure . fmap parseEnv . getEnv
 
-data Tok = Tok String String
-data Cred = Cred Tok String String
-data Conf = Conf Cred Int Int
+-- ----------------------------------------------------------------------------
+-- Determining dependencies
+
+-- | The Dep type traverses the leaves of the Env parser tree and
+-- determines all of the environment variables which have been accessed.
+data Dep a = Dep { findDependencies :: [String] }
+  deriving ( Functor )
+
+instance Applicative Dep where
+  pure a = Dep []
+  Dep s1 <*> Dep s2 = Dep (s1 ++ s2)
+
+instance HasEnv Dep where
+  getEnv s = Dep [s]
+
+instance Env Dep where
+  liftFailure (Dep s) = Dep s
 
 -- ----------------------------------------------------------------------------
 -- Environment types
@@ -129,7 +144,7 @@ instance FromEnv NominalDiffTime where
 -- > Sat Jan 18 22:20:02 +0000 2014
 -- > Sat Jan 18 22:20:02 2014
 -- > Jan 18 22:20:02 2014
--- 
+--
 instance FromEnv UTCTime where
   parseEnv s =
     e "bad UTC time"
