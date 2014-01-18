@@ -46,6 +46,7 @@ library
                      , containers  >= 0.4
 
                     -- Others
+
                      , http-types  >= 0.8
 
   hs-source-dirs:      src
