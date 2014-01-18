@@ -23,6 +23,8 @@ import qualified Data.Text.Lazy             as TL
 import           Data.Time
 import qualified System.Environment         as Env
 import           System.Locale
+import qualified Data.Aeson                 as Ae
+import qualified Data.Aeson.Types           as Ae
 
 -- ----------------------------------------------------------------------------
 -- Getting to the environment
@@ -149,6 +151,23 @@ instance FromEnv Day where
     e "bad date" $ parseTime defaultTimeLocale "%Y-%m-%d" s
 
 
+-- ----------------------------------------------------------------------------
+-- JSON Parsers
+--
+-- JSON is such a convenient format that it might be conceivably jammed
+-- into an environment variable. Since Aeson will soon be in the Haskell
+-- platform we'll go ahead and include some obvious default instances for
+-- Aeson Value types along with a nice general parser.
+
+instance FromEnv Ae.Value where
+  parseEnv s = do
+    bs <- parseEnv s
+    Ae.eitherDecodeStrict bs
+
+json :: (Ae.FromJSON a, Env r) => String -> r a
+json = liftFailure . fmap tryConvert . env where
+  tryConvert :: Ae.FromJSON a => Ae.Value -> Either String a
+  tryConvert = Ae.parseEither Ae.parseJSON
 
 -- ----------------------------------------------------------------------------
 -- Utilities

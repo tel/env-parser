@@ -43,6 +43,7 @@ library
                     -- Haskell Platform 2013.2.0.0
 
                      , attoparsec        >= 0.10
+                     , aeson             >= 0.7
                      , mtl               >= 2.1
                      , network           >= 2.4
                      , text              >= 0.11
