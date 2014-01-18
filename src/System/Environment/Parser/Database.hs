@@ -68,10 +68,6 @@ data DBConnection = DBConnection
 instance FromEnv DBConnection where
   parseEnv = tryParse
 
-e :: String -> Maybe a -> Either String a
-e s Nothing  = Left s
-e _ (Just a) = Right a
-
 tryParse :: String -> Either String DBConnection
 tryParse s = do
   uri  <- e "invalid URI format" $ URI.parseAbsoluteURI s
