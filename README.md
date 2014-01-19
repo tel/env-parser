@@ -47,3 +47,22 @@ main = do
                     showHelp envConfig
     Right c0  -> runProgram c0
 ```
+
+## Why only implement `Alternative`?
+
+Most parsers of this style instantiate both `Alternative` and `MonadPlus`
+providing significantly more flexibility in the kinds of parses which can be
+represented. `env-parser` chooses not to do this in order to allow deeper
+analysis of the kinds of environmental contexts a program requires.
+
+By allowing only as much power as `Alternative` it's possible to determine
+directly from the parser itself all of the environment variables the program
+depends upon and present this to the user. We also allow arbitrary validation
+and transformation to occur via `liftFailure` (a weakened `join`) which provides
+a lot of the benefit of a `Monad` instance without sacrificing
+comprehensibility.
+
+This essentially maintains a divide between your actual program and your
+configuration information--the former can have complex behavior but the latter
+should always be easy to understand. This will lead to more comprehensible
+errors and configuration documentation.
