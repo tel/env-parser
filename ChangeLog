@@ -7,3 +7,4 @@
 	* src/System/Environment/Parser/Internal.hs: Introduced FromEnv for Data.Time types
 	* src/System/Environment/Parser/Encoded.hs: Added encoded bytestring types
 	* src/System/Environment/Parser/Internal.hs: Introduced Aeson Value FromEnv instances
+	* src/System/Environment/Parser/Encoded.hs: Added To/FromJSON instances for Encoded bytestrings
