@@ -14,6 +14,7 @@
 module System.Environment.Parser.Internal where
 
 import           Control.Applicative
+import qualified Control.Exception          as E
 import           Control.Monad
 import qualified Data.Aeson                 as Ae
 import qualified Data.Aeson.Types           as Ae
@@ -46,10 +47,30 @@ instance HasEnv IO where
 -- The Env class
 
 class (Alternative r, HasEnv r) => Env r where
-  liftFailure :: r (Either String a) -> r a
+  -- | Express that a parse has failed
+  joinFailure :: r (Either String a) -> r a
+
+  -- | Document a particular branch of the parse
+  (<?>) :: r a -> String -> r a
+  (<?>) = const
 
 env :: (Env r, FromEnv a) => String -> r a
-env = liftFailure . fmap parseEnv . getEnv
+env = joinFailure . fmap parseEnv . getEnv
+
+envParse :: (Env r, FromEnv a) => (a -> Either String b) -> String -> r b
+envParse parse key = joinFailure $ fmap parse $ env key
+
+-- ----------------------------------------------------------------------------
+-- E.g.
+
+data Pth = Pth { pth :: S.ByteString }
+  deriving ( Eq, Show )
+
+envPth :: Env r => r Pth
+envPth = Pth <$> env "PATH"
+
+envPth0 :: Env r => r Pth
+envPth0 = Pth <$> env "NOT_THE_PATH"
 
 -- ----------------------------------------------------------------------------
 -- Determining dependencies
@@ -71,7 +92,41 @@ instance HasEnv Dep where
   getEnv s = Dep [s]
 
 instance Env Dep where
-  liftFailure (Dep s) = Dep s
+  joinFailure (Dep s) = Dep s
+  (<?>) = const
+
+-- ----------------------------------------------------------------------------
+-- A dumb, failing Parser
+--
+-- Instead of taking advantage of the Applicative structure to pass around
+-- reasons for failure, this version just straight-up fails.
+
+data May a = May { runMay :: IO (Maybe a) }
+  deriving Functor
+
+instance Applicative May where
+  pure = May . pure . pure
+  May iof <*> May iox = May $ liftA2 (<*>) iof iox
+
+instance Alternative May where
+  empty = May (pure Nothing)
+  May io1 <|> May io2 = May $ liftA2 (<|>) io1 io2
+
+instance HasEnv May where
+  getEnv key = May $ do
+    v <- E.try (getEnv key)
+    case v of
+      Left e  -> let _ = (e :: E.SomeException) in return Nothing
+      Right a -> return (Just a)
+
+instance Env May where
+  joinFailure (May io) = May $ do
+    x <- io
+    case x of
+      Nothing -> return Nothing
+      Just y  -> case y of
+        Left _  -> return Nothing
+        Right a -> return (Just a)
 
 -- ----------------------------------------------------------------------------
 -- Environment types
@@ -184,9 +239,7 @@ instance FromEnv Ae.Value where
     Ae.eitherDecodeStrict bs
 
 json :: (Ae.FromJSON a, Env r) => String -> r a
-json = liftFailure . fmap tryConvert . env where
-  tryConvert :: Ae.FromJSON a => Ae.Value -> Either String a
-  tryConvert = Ae.parseEither Ae.parseJSON
+json = envParse (Ae.parseEither Ae.parseJSON)
 
 -- ----------------------------------------------------------------------------
 -- Utilities
