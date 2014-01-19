@@ -23,6 +23,7 @@ import qualified Data.ByteString.Char8      as S8
 import qualified Data.ByteString.Lazy       as SL
 import qualified Data.ByteString.Lazy.Char8 as SL8
 import           Data.Int
+import           Data.List                  (intersect)
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as TL
 import           Data.Time
@@ -34,7 +35,7 @@ import           System.Locale
 
 -- | 'HasEnv' is an adapter abstracting the raw IO-based environment
 -- lookup. This lets us simulate a run of our parser in a fake environment.
-class Applicative r => HasEnv r where
+class HasEnv r where
   getEnv :: String -> r String
 
 instance HasEnv IO where
@@ -44,7 +45,7 @@ instance HasEnv IO where
 -- ----------------------------------------------------------------------------
 -- The Env class
 
-class HasEnv r => Env r where
+class (Alternative r, HasEnv r) => Env r where
   liftFailure :: r (Either String a) -> r a
 
 env :: (Env r, FromEnv a) => String -> r a
@@ -61,6 +62,10 @@ data Dep a = Dep { findDependencies :: [String] }
 instance Applicative Dep where
   pure a = Dep []
   Dep s1 <*> Dep s2 = Dep (s1 ++ s2)
+
+instance Alternative Dep where
+  empty = Dep ["{unsatisfiable}"]
+  Dep as <|> Dep bs = Dep (as `intersect` bs)
 
 instance HasEnv Dep where
   getEnv s = Dep [s]
