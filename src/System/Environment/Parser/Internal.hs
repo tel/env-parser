@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveFunctor        #-}
 {-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 
 -- |
@@ -24,7 +25,9 @@ import qualified Data.ByteString.Char8      as S8
 import qualified Data.ByteString.Lazy       as SL
 import qualified Data.ByteString.Lazy.Char8 as SL8
 import           Data.Int
-import           Data.List                  (intersect)
+import           Data.Monoid
+import qualified Data.Map as Map
+import qualified Data.Sequence              as Seq
 import qualified Data.Text                  as T
 import qualified Data.Text.Lazy             as TL
 import           Data.Time
@@ -42,20 +45,34 @@ class HasEnv r where
 instance HasEnv IO where
   getEnv = Env.getEnv
 
-
+getEnvSafe :: String -> IO (Maybe String)
+getEnvSafe key = do
+  v <- E.try (getEnv key)
+  return $ case v :: Either E.SomeException String of
+    Left _  -> Nothing
+    Right a -> Just a
+  
 -- ----------------------------------------------------------------------------
 -- The Env class
 
-class (Alternative r, HasEnv r) => Env r where
+infix 0 <?>
+
+class (Applicative r, HasEnv r) => Env r where
   -- | Express that a parse has failed
   joinFailure :: r (Either String a) -> r a
+
+  -- | Replace a result with a default if necessary
+  def :: a -> (a -> String) -> r a -> r a
 
   -- | Document a particular branch of the parse
   (<?>) :: r a -> String -> r a
   (<?>) = const
 
 env :: (Env r, FromEnv a) => String -> r a
-env = joinFailure . fmap parseEnv . getEnv
+env = fromEnv . getEnv
+
+defShow :: (Show a, Env r) => a -> r a -> r a
+defShow a = def a show
 
 envParse :: (Env r, FromEnv a) => (a -> Either String b) -> String -> r b
 envParse parse key = joinFailure $ fmap parse $ env key
@@ -63,70 +80,118 @@ envParse parse key = joinFailure $ fmap parse $ env key
 -- ----------------------------------------------------------------------------
 -- E.g.
 
-data Pth = Pth { pth :: S.ByteString }
+data Pth = Pth { pth :: S.ByteString, count :: Int }
   deriving ( Eq, Show )
 
 envPth :: Env r => r Pth
-envPth = Pth <$> env "PATH"
+envPth = Pth <$> env "PATH" <*> env "SHLVL"
 
 envPth0 :: Env r => r Pth
-envPth0 = Pth <$> env "NOT_THE_PATH"
+envPth0 = Pth <$> env "NOT_THE_PATH" <*> env "SHLVL_BROKEN"
+
+envPth1 :: Env r => r Pth
+envPth1 = Pth <$> defShow "foo" (env "NOT_THE_PATH")
+              <*> ( (+) <$> env "SHLVL"
+                        <*> env "SHLVL"
+                        <?> "sum of SHLVL" )
 
 -- ----------------------------------------------------------------------------
--- Determining dependencies
+-- Dependency tree refinement
 
--- | The Dep type traverses the leaves of the Env parser tree and
--- determines all of the environment variables which have been accessed.
-data Dep a = Dep { findDependencies :: [String] }
-  deriving ( Functor )
+data TDep = Succeed
+          | Need String
+          | TBranch (Seq.Seq TDep)
+          | CanFail TDep
+          | Default String TDep
+          | Documented String TDep
+  deriving ( Eq, Show )
 
-instance Applicative Dep where
-  pure a = Dep []
-  Dep s1 <*> Dep s2 = Dep (s1 ++ s2)
-
-instance Alternative Dep where
-  empty = Dep ["{unsatisfiable}"]
-  Dep as <|> Dep bs = Dep (as `intersect` bs)
-
-instance HasEnv Dep where
-  getEnv s = Dep [s]
-
-instance Env Dep where
-  joinFailure (Dep s) = Dep s
-  (<?>) = const
-
--- ----------------------------------------------------------------------------
--- A dumb, failing Parser
---
--- Instead of taking advantage of the Applicative structure to pass around
--- reasons for failure, this version just straight-up fails.
-
-data May a = May { runMay :: IO (Maybe a) }
+data TD a = TD { runTD :: TDep }
   deriving Functor
 
-instance Applicative May where
-  pure = May . pure . pure
-  May iof <*> May iox = May $ liftA2 (<*>) iof iox
+instance Applicative TD where
+  pure _ = TD Succeed
+  TD (TBranch tdfs) <*> TD (TBranch tdxs) = TD (TBranch $ tdfs <> tdxs)
+  TD (TBranch tdfs) <*> TD tdx            = TD (TBranch $ tdfs Seq.|> tdx)
+  TD tdf            <*> TD (TBranch tdxs) = TD (TBranch $ tdf Seq.<| tdxs)
+  TD tdf            <*> TD tdx            = TD (TBranch $ Seq.fromList [tdf, tdx])
 
-instance Alternative May where
-  empty = May (pure Nothing)
-  May io1 <|> May io2 = May $ liftA2 (<|>) io1 io2
+instance HasEnv TD where
+  getEnv key = TD (Need key)
 
-instance HasEnv May where
-  getEnv key = May $ do
-    v <- E.try (getEnv key)
-    case v of
-      Left e  -> let _ = (e :: E.SomeException) in return Nothing
-      Right a -> return (Just a)
+instance Env TD where
+  joinFailure (TD tdep)   = TD (CanFail tdep)
+  def a sho (TD tdep)     = TD (Default (sho a) tdep)
+  TD tdep <?> doc         = TD (Documented doc tdep)
 
-instance Env May where
-  joinFailure (May io) = May $ do
-    x <- io
-    case x of
-      Nothing -> return Nothing
-      Just y  -> case y of
-        Left _  -> return Nothing
-        Right a -> return (Just a)
+-- ----------------------------------------------------------------------------
+-- A smart, failing Parser
+--
+-- This is much like May above but provides more provocative indications of
+-- why a parse failed. Goals are to include all of the ENV vars which would
+-- need to be declared (or fixed) in order to make the parse succeed.
+
+data Miss e a = Miss e | Got a
+  deriving ( Eq, Ord, Show, Functor )
+
+data Err = Want   String
+         | Joined String
+  deriving ( Eq, Ord, Show )
+
+instance Monoid e => Applicative (Miss e) where
+  pure = Got
+  Miss e1 <*> Miss e2 = Miss (e1 <> e2)
+  Miss e1 <*> _       = Miss e1
+  _       <*> Miss e2 = Miss e2
+  Got f   <*> Got x   = Got (f x)
+
+instance HasEnv (Miss [Err]) where
+  getEnv key = Miss [Want key]
+
+instance Env (Miss [Err]) where
+  joinFailure (Miss er) = Miss er
+  joinFailure (Got (Left er))  = Miss [Joined er]
+  joinFailure (Got (Right a)) = Got a
+
+  def a _ (Miss _) = Got a
+  def _ _ (Got a)  = Got a
+
+  Miss er <?> _doc = Miss er
+  Got  a  <?> _doc = Got  a
+
+-- -----------------------------------------------------------------------------
+-- Generalized IO wrapper which injects REAL Env parsing into the mix
+
+data Iop f a = Iop { parse :: IO (f a) }
+  deriving ( Functor )
+
+instance Applicative f => Applicative (Iop f) where
+  pure = Iop . pure . pure
+  Iop iof <*> Iop iox = Iop $ liftA2 (<*>) iof iox
+
+instance (Applicative f, HasEnv f) => HasEnv (Iop f) where
+  getEnv key = Iop $ maybe (getEnv key) pure <$> getEnvSafe key
+
+instance Env f => Env (Iop f) where
+  joinFailure (Iop io) = Iop $ joinFailure <$> io
+  def a sho   (Iop io) = Iop $ def a sho   <$> io
+
+-- -----------------------------------------------------------------------------
+-- Pureified wrapper which injects FAKE Env parsing into the mix
+
+data Mop f a = Mop { parseFake :: Map.Map String String -> f a }
+  deriving ( Functor )
+
+instance Applicative f => Applicative (Mop f) where
+  pure = Mop . pure . pure
+  Mop mpf <*> Mop mpx = Mop $ liftA2 (<*>) mpf mpx
+
+instance (Applicative f, HasEnv f) => HasEnv (Mop f) where
+  getEnv key = Mop $ maybe (getEnv key) pure . Map.lookup key
+
+instance Env f => Env (Mop f) where
+  joinFailure (Mop mp) = Mop $ joinFailure <$> mp
+  def a sho   (Mop mp) = Mop $ def a sho   <$> mp
 
 -- ----------------------------------------------------------------------------
 -- Environment types
@@ -136,20 +201,30 @@ instance Env May where
 class FromEnv a where
   parseEnv :: String -> Either String a
 
+  -- | For this most part this should be left as default. It's useful for
+  -- introducing non-failing parsers, though.
+  fromEnv :: Env r => r String -> r a
+  fromEnv = joinFailure . fmap parseEnv
+
 instance FromEnv String where
   parseEnv = Right
+  fromEnv = id
 
 instance FromEnv S.ByteString where
   parseEnv s = Right (S8.pack s)
+  fromEnv = fmap S8.pack
 
 instance FromEnv SL.ByteString where
   parseEnv s = Right (SL8.pack s)
+  fromEnv = fmap SL8.pack
 
 instance FromEnv T.Text where
   parseEnv s = Right (T.pack s)
+  fromEnv = fmap T.pack
 
 instance FromEnv TL.Text where
   parseEnv s = Right (TL.pack s)
+  fromEnv = fmap TL.pack
 
 integralEnv :: Integral a => String -> Either String a
 integralEnv s = do
