@@ -11,7 +11,7 @@
 -- Heroku-style database connection URL parsing.
 module System.Environment.Parser.Database (
 
-  DBConnection (..), Provider (..)
+  DBConnection (..), Provider (..), providerString
 
  ) where
 
@@ -24,7 +24,7 @@ import qualified Data.Text                          as T
 import qualified Data.Text.Encoding                 as TE
 import qualified Network.HTTP.Types                 as Ht
 import qualified Network.URI                        as URI
-import           System.Environment.Parser.Internal
+import           System.Environment.Parser.FromEnv
 
 ----------------------------------------------------------------------------
 -- Heroku-style DB urls
@@ -33,11 +33,19 @@ import           System.Environment.Parser.Internal
 -- refers to. This provides a small amount of convenience around URL
 -- detection, but if detection fails use 'providerName' to extract the raw
 -- string.
-data Provider = Postgres { providerName :: S.ByteString }
-              | MySQL    { providerName :: S.ByteString }
-              | AMQP     { providerName :: S.ByteString }
-              | HTTP     { providerName :: S.ByteString }
-              | Other    { providerName :: S.ByteString }
+data Provider = Postgres S.ByteString
+              | MySQL    S.ByteString
+              | AMQP     S.ByteString
+              | HTTP     S.ByteString
+              | Other    S.ByteString
+
+providerString :: Provider -> S.ByteString
+providerString p = case p of
+  Postgres s -> s
+  MySQL    s -> s
+  AMQP     s -> s
+  HTTP     s -> s
+  Other    s -> s
 
 -- | A type representing the information that can be parsed from
 -- a URL-style database configuration. For example consider the following
@@ -86,7 +94,7 @@ tryParse s = do
   where
 
     guessProvider :: String -> Provider
-    guessProvider s = case s of
+    guessProvider x = case x of
       "postgres:" -> Postgres bs
       "mysql:"    -> MySQL    bs
       "mysql2:"   -> MySQL    bs
@@ -105,3 +113,10 @@ tryParse s = do
 
     makeQueryMap :: String -> Map.Map S.ByteString S.ByteString
     makeQueryMap = Map.fromList . Ht.parseSimpleQuery . S8.pack
+
+-- -----------------------------------------------------------------------------
+-- Utilities
+
+e :: String -> Maybe a -> Either String a
+e s Nothing  = Left s
+e _ (Just a) = Right a
