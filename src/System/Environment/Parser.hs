@@ -18,18 +18,29 @@ module System.Environment.Parser (
 
   -- * Basic interface
 
-    run       -- :: Parser a -> IO (Either Errors a)
-  , test      -- :: Parser a -> Map.Map String String -> Either Errors a
-  , help      -- :: Parser a -> Dep
+  -- ** Building a ''Parser'
+
+  Parser
+  
   , get       -- :: FromEnv a  => String -> Parser a
   , getParse  -- :: FE.FromEnv a => (a -> Either String b) -> String -> Parser b
   , json      -- :: FromJSON a => String -> Parser a
 
-  -- * Interface types
+  -- *** Annotating a 'Parser'
+  , def       -- :: Show a => a -> Parser a -> Parser a
+  , def'      -- ::           a -> Parser a -> Parser a
+  , doc       -- :: String -> Parser a -> Parser a
 
-  , Parser
+  -- * Interpreting a 'Parser'
+    
+  , run       -- :: Parser a -> IO (Either Errors a)
+  , test      -- :: Parser a -> Map.Map String String -> Either Errors a
+  , analyze   -- :: Parser a -> Analysis
+
   , Errors (..), Err (..)
-  , Dep    (..), references
+
+  -- ** Analysis and documentation
+  , Analysis (..), references
 
   ) where
 
@@ -49,6 +60,10 @@ import           System.Environment.Parser.Miss
 -- -----------------------------------------------------------------------------
 -- Error types
 
+-- | We consider two broad classes of failure: either an environment
+-- variable was expected to exist and didn't (it was 'Wanted') or the
+-- value failed to validate during parsing and we've 'Joined' an
+-- error message from that failed parse.
 data Err = Wanted String | Joined String
   deriving ( Eq, Ord, Show )
 
@@ -62,22 +77,31 @@ instance Cls.Satisfiable Errors where
 -- -----------------------------------------------------------------------------
 -- Analysis types
 
-data Dep = Succeeding
-         | Needing    String
-         | Branching  (Seq.Seq Dep)
-         | Joining    Dep
-         | Defaulting String Dep
+-- | The 'Analysis' type is a result of running the parser
+-- statically. It provides some information about the kind of parse
+-- that would be attempted and is thus useful for error messages or
+-- manual documentation.
+data Analysis
+  = Succeeding
+  | Wanting     String
+  | Branching   (Seq.Seq Analysis)
+  | Joining     Analysis
+  | Defaulting  String Analysis
+  | Documenting String Analysis
   deriving ( Eq, Show )
 
-references :: Dep -> [String]
-references = toList . foldDep where
-  foldDep Succeeding       = Seq.empty
-  foldDep (Needing key)    = Seq.singleton key
-  foldDep (Branching ds)   = foldMap foldDep ds
-  foldDep (Joining d)      = foldDep d
-  foldDep (Defaulting _ d) = foldDep d
+-- | Get each environment varaible the parser wants. This will include
+-- ones that may be optional due to default values.
+references :: Analysis -> [String]
+references = toList . foldAnalysis where
+  foldAnalysis Succeeding          = Seq.empty
+  foldAnalysis (Wanting key)       = Seq.singleton key
+  foldAnalysis (Branching ds)      = foldMap foldAnalysis ds
+  foldAnalysis (Joining d)         = foldAnalysis d
+  foldAnalysis (Defaulting _ d)    = foldAnalysis d
+  foldAnalysis (Documenting doc d) = foldAnalysis d
 
-data Df a = Df { runDf :: Dep } deriving Functor
+data Df a = Df { runDf :: Analysis } deriving Functor
 
 instance Applicative Df where
   pure _ = Df Succeeding
@@ -87,7 +111,7 @@ instance Applicative Df where
   Df df              <*> Df dx              = Df (Branching $ Seq.fromList [df, dx])
 
 instance Cls.HasEnv Df where
-  getEnv key = Df (Needing key)
+  getEnv key = Df (Wanting key)
 
 instance Cls.Env Df where
   joinFailure (Df dep)   = Df (Joining dep)
@@ -96,10 +120,15 @@ instance Cls.Env Df where
 -- -----------------------------------------------------------------------------
 -- Parser types
 
+-- | The generic environment 'Parser'. This type is used to specify
+-- the structure of a configuration which can be read from the
+-- environment. Later that structure can either be examined using
+-- 'analyze', tested using 'test', or performed on the actual
+-- environment using 'run'.
 data Parser a = Parser
-  { run'  :: Compose IO (Miss Errors) a
-  , test' :: Compose ((->) (Map.Map String String)) (Miss Errors) a
-  , help' :: Df a
+  { run'     :: Compose IO (Miss Errors) a
+  , test'    :: Compose ((->) (Map.Map String String)) (Miss Errors) a
+  , analyze' :: Df a
   }
   deriving ( Functor )
 
@@ -117,20 +146,48 @@ instance Cls.Env Parser where
   def a sho   (Parser i1 i2 i3) =
     Parser (Cls.def a sho i1) (Cls.def a sho i2) (Cls.def a sho i3)
 
+-- | Run a 'Parser' in 'IO' using the actual environment.
 run :: Parser a -> IO (Either Errors a)
 run = fmap toEither . getCompose . run'
 
+-- | Run a 'Parser' purely using a 'Map.Map' to simulate the
+-- environment.
 test :: Parser a -> Map.Map String String -> Either Errors a
 test = fmap toEither . getCompose . test'
 
-help :: Parser a -> Dep
-help = runDf . help'
+-- | Run a completely pure, static analysis of the 'Parser' that can
+-- be used to generate helpful documentation.
+analyze :: Parser a -> Analysis
+analyze = runDf . analyze'
 
+-- | Pull a value from the environment.
 get :: FE.FromEnv a => String -> Parser a
 get = FE.fromEnv . Cls.getEnv
 
+-- | Assign a default value to a 'Parser'. If the parser should fail at
+-- runtime the default value will be returned instead. The value must
+-- be showable in order to provide documentation.
+def :: Show a => a -> Parser a -> Parser a
+def a = Cls.def a show
+
+-- | Assign a default value to a 'Parser'. This is identical to 'def'
+-- but does not require the default value has a 'Show'
+-- instance---instead a constant descriptive string should be passed
+-- directly.
+def' :: a -> String -> Parser a -> Parser a
+def' a str = Cls.def a (const $ "{" ++ str ++ "}")
+
+-- | Assign documentation to a branch of the 'Parser'. This can be
+-- later retrieved in the 'Analysis' type.
+doc :: String -> Parser a -> Parser a
+doc = Cls.doc
+
+-- | Pull a string from the environment and interpret it as a
+-- JSON-serializable type.
 json :: Ae.FromJSON a => String -> Parser a
 json = getParse (Ae.parseEither Ae.parseJSON)
 
+-- | Pull a value from the environment and attempt to parse it into
+-- some other type. Failures will be 'Joined' into the result.
 getParse :: FE.FromEnv a => (a -> Either String b) -> String -> Parser b
 getParse parse key = Cls.joinFailure $ fmap parse $ get key

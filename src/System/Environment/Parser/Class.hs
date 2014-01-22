@@ -60,6 +60,10 @@ class Applicative r => Env r where
   -- | Replace a result with a default if necessary
   def :: a -> (a -> String) -> r a -> r a
 
+  -- | Provide documentation on a particular value
+  doc :: String -> r a -> r a
+  doc = flip const
+
 instance Satisfiable e => HasEnv (Miss e) where
   getEnv key = Miss (wants key)
 
