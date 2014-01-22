@@ -38,6 +38,7 @@ data Provider = Postgres S.ByteString
               | AMQP     S.ByteString
               | HTTP     S.ByteString
               | Other    S.ByteString
+  deriving ( Eq, Ord, Show, Read )
 
 providerString :: Provider -> S.ByteString
 providerString p = case p of
@@ -70,6 +71,7 @@ data DBConnection = DBConnection
   , location :: S.ByteString
   , params   :: Map.Map S.ByteString S.ByteString
   }
+  deriving ( Eq, Ord, Show, Read )
 
 instance FromEnv DBConnection where
   parseEnv = tryParse
