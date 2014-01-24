@@ -12,7 +12,34 @@
 -- Portability : non-portable
 --
 -- Functions for building generic environment parsers which provide
--- automatic documentation and easy testing.
+-- automatic documentation and easy testing. 
+--
+-- This module is intended to be imported qualified, for example, we might
+-- parse out a Heroku database URL and a base-64 encoded encryption key in
+-- the following manner.
+--
+-- > import qualified System.Environment.Parser          as Env
+-- > import qualified System.Environment.Parser.Database as Env
+-- > import qualified System.Environment.Parser.Encoded  as Env
+-- >
+-- > data Config = Config { db :: Env.DBConnection, key :: Env.Base64 }
+-- > 
+-- > configP :: Parser Config
+-- > configP = Config <$> Env.get "DATABASE_URL"
+-- >                  <*> Env.get "ENCRYPTION_KEY"
+--
+-- We can then use that 'Parser' value to attempt to compute a @Config@ in
+-- 'IO' and print out the missing and needed variables on failure
+--
+-- > do cp <- Env.run configP :: IO (Either Errors Config)
+-- >    case cp of
+-- >      Left errs   -> do
+-- >        putStrLn "Missing the following variables: "
+-- >        mapM_ putStrLn (Env.missing errs)
+-- >        putStrLn "Needs the following variables: "
+-- >        mapM_ putStrLn (Env.references (Env.analyze configP))
+-- >      Right config -> do
+-- >        ...
 --
 module System.Environment.Parser (
 
@@ -37,7 +64,8 @@ module System.Environment.Parser (
   , test      -- :: Parser a -> Map.Map String String -> Either Errors a
   , analyze   -- :: Parser a -> Analysis
 
-  , Errors (..), Err (..)
+  , Errors (..), missing
+  , Err (..)
 
   -- ** Analysis and documentation
   , Analysis (..), references
@@ -49,6 +77,7 @@ import qualified Data.Aeson                        as Ae
 import qualified Data.Aeson.Types                  as Ae
 import           Data.Functor.Compose
 import qualified Data.Map                          as Map
+import           Data.Maybe                        (mapMaybe)
 import           Data.Monoid
 import           Data.Foldable                     (toList, foldMap)
 import           Data.Sequence                     ((<|), (|>))
@@ -69,6 +98,11 @@ data Err = Wanted String | Joined String
 
 newtype Errors = Errors { getErrors :: Seq.Seq Err }
   deriving ( Eq, Ord, Show, Monoid )
+
+missing :: Errors -> [String]
+missing = mapMaybe go . toList . getErrors where
+  go (Wanted s) = Just s
+  go (Joined _) = Nothing
 
 instance Cls.Satisfiable Errors where
   wants  = Errors . Seq.singleton . Wanted
