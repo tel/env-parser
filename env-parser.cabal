@@ -1,22 +1,19 @@
 name:                env-parser
-version:             0.0.1.1
+version:             0.0.2
 synopsis:            Pull configuration information from the ENV
 description:         
-  @env-parser@ is a small library for configuring programs based on information
-  from the environment.
+
+  @env-parser is a small library for configuring programs based on information
+  from the environment. It's goals and design are similar to that of @cmdargs@
+  or @optparse-applicative@ but aimed at automatically managed programs such as
+  those that might be run via Heroku or Runit/daemontools.
   .
-  Command-line oriented programs tend to pull much of their runtime
-  configuration from command-line arguments and libraries such as @cmdargs@ are
-  useful for encoding this configuration in your program. For programs which
-  draw configuration from the environment, however, this must usually be done
-  manually.
-  .
-  @env-parser@ focuses on making ENV-configured programs both easy to build,
-  declarative, self-documenting, and easy to test.
-  .
-  A particular use case of this parser is to make it easy to build applications
-  which launch under Heroku-style infrastructure. We provide explicit parsers
-  for some of Heroku's conventions for this purpose.
+  @env-parser@ intentionally sacrifices power for comprehensibility---the
+  primary interface, @Parser@, implements only @Applicative@. This provides
+  better runtime error messages and automatically generated static help using
+  parser annotations. It also expresses a principle of simplicity in
+  configuration: arbitrary uses of @Monad@ or even @Alternative@ can lead to
+  opaque failures prior to a program even beginning to run.
 
 homepage:            http://github.com/tel/env-parser
 license:             MIT
