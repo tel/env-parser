@@ -99,6 +99,8 @@ data Err = Wanted String | Joined String
 newtype Errors = Errors { getErrors :: Seq.Seq Err }
   deriving ( Eq, Ord, Show, Monoid )
 
+-- | Determine all of the variables which were missing in the environment
+-- yet required.
 missing :: Errors -> [String]
 missing = mapMaybe go . toList . getErrors where
   go (Wanted s) = Just s
