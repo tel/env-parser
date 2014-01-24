@@ -2,7 +2,6 @@ name:                env-parser
 version:             0.0.2.1
 synopsis:            Pull configuration information from the ENV
 description:         
-
   @env-parser is a small library for configuring programs based on information
   from the environment. It's goals and design are similar to that of @cmdargs@
   or @optparse-applicative@ but aimed at automatically managed programs such as
