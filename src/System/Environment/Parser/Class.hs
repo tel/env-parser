@@ -68,7 +68,7 @@ instance Satisfiable e => HasEnv (Miss e) where
   getEnv key = Miss (wants key)
 
 instance Satisfiable e => Env (Miss e) where
-  joinFailure (Miss er) = Miss er
+  joinFailure (Miss er)       = Miss er
   joinFailure (Got (Left er)) = Miss (errors er)
   joinFailure (Got (Right a)) = Got a
 
