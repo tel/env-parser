@@ -10,13 +10,19 @@ description:
   <http://hackage.haskell.org/package/cmdargs cmdargs> for the ENV
   instead of the command line.
   .
+  Often when one parses information from the environment it is a
+  challenge to debug failures---missing data with no defaults must be
+  detected value by value at worst. There may be documentation
+  available for the program, but even then the documentation can
+  become desynchronized with the actual program.
+  .  
   Using @env-parser@ ensures that your application fails quickly if
   certain ENV invariants fail (often caused by misspelled environment
   keys). It also allows the application to use types to delimit the
   syntax of values in the environment more explicitly. Finally,
   @env-parser@ uses the structure of your parser to automatically
   document the application's interface with the environment.
-
+  
 license:             BSD3
 license-file:        LICENSE
 author:              Joseph Abrahamson
