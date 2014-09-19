@@ -1,6 +1,7 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module      : System.Environment.Parser
@@ -16,6 +17,9 @@ module System.Environment.Parser where
 
 import           Control.Applicative
 import           Control.Exception
+import qualified Data.Foldable as F
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Text (Text)
@@ -29,14 +33,18 @@ import           System.Posix.Env.ByteString
 
 data P a where
   Get :: Key a
-      -- ^ The key to look up the values in the ENV using
+      -- ^ The key: where to look up the values in the ENV
       -> (Text -> Either String a)
       -- ^ The mechanism for creating values from ENV text
       -> P a
   deriving Functor
 
-get :: FromEnv a => Key a -> A P a
-get = alift . flip Get parseEnv
+newtype Parser a =
+  Parser { unParser :: A P a }
+  deriving ( Functor, Applicative )
+
+get :: FromEnv a => Key a -> Parser a
+get = Parser . alift . flip Get parseEnv
 
 data Err
   = Missing
@@ -60,19 +68,53 @@ getEnvT t = do
   return $ case m of
     Nothing -> Left Missing
     Just a  -> lmap EncodingError (Te.decodeUtf8' a)
-  
-runGet :: P a -> IO (Lookup a)
-runGet p@(Get k@(Key n _ mdef) go) = do
-  t <- getEnvT n
-  return $ case t of
-    Right a -> parser p a
-    Left e  -> case mdef of
+
+runGetIO :: Map Text Text ->
+         -- ^ Overriding map
+          P a ->
+         IO (Lookup a)
+runGetIO m p@(Get k@(Key n _ mdef) go) = do
+  case Map.lookup n m of
+    Just a  -> return (parser p a)
+    Nothing -> do
+      t <- getEnvT n
+      return $ case t of
+        Right a -> parser p a
+        Left e  -> case mdef of
+          Just (Shown _ a) -> right a
+          Nothing          -> failLookup k e
+
+runGetPure :: Map Text Text -> P a -> Lookup a
+runGetPure m p@(Get k@(Key n _ mdef) go) = do
+  case Map.lookup n m of
+    Just a  -> parser p a
+    Nothing -> case mdef of
       Just (Shown _ a) -> right a
-      Nothing          -> failLookup k e
-  
-ex :: A P (Int, Int)
-ex = (,) <$> get "TZ" <*> get "FOO"
+      Nothing          -> failLookup k Missing
 
-run :: A P a -> IO (Lookup a)
-run = decompose . alower (C . runGet)
+-- | Convert the `Lookup` type to something more naturally palatable
+runLookup :: Lookup a -> Either [(Key (), Err)] a
+runLookup c = case c of
+  Cl s -> Left (F.toList s)
+  Cr a -> Right a
 
+-- | Execute a 'Parser' lookup up actual values from the environment
+-- only if they are missing from a \"default\" environment mapping.
+runParser' :: Map Text Text -> Parser a -> IO (Either [(Key (), Err)] a)
+runParser' m = fmap runLookup . decompose . alower (C . runGetIO m) . unParser
+
+-- | Execute a 'Parser' lookup up actual values from the environment.
+runParser :: Parser a -> IO (Either [(Key (), Err)] a)
+runParser = runParser' Map.empty
+
+-- | Test a parser purely using a mock environment 'Map'
+testParser :: Map Text Text -> Parser a -> Either [(Key (), Err)] a
+testParser m = runLookup . alower (runGetPure m) . unParser
+
+-- | Extract the list of keys that will be accessed by running the
+-- 'Parser'.
+documentParser :: Parser a -> [Key ()]
+documentParser
+  = F.toList . getConst
+  . alower (\(Get k _) -> Const . Seq.singleton . forgetKey $ k)
+  . unParser

@@ -119,34 +119,45 @@ instance FromEnv Bool where
         , ("0",     False)
         ]
 
-instance FromEnv Cty.CChar      where fromEnv = flip fmap fromEnv Cty.CChar
-instance FromEnv Cty.CClock     where fromEnv = flip fmap fromEnv Cty.CClock
-instance FromEnv Cty.CDouble    where fromEnv = flip fmap fromEnv Cty.CDouble
-instance FromEnv Cty.CFloat     where fromEnv = flip fmap fromEnv Cty.CFloat
-instance FromEnv Cty.CInt       where fromEnv = flip fmap fromEnv Cty.CInt
-instance FromEnv Cty.CIntPtr    where fromEnv = flip fmap fromEnv Cty.CIntPtr
-instance FromEnv Cty.CLLong     where fromEnv = flip fmap fromEnv Cty.CLLong
-instance FromEnv Cty.CLong      where fromEnv = flip fmap fromEnv Cty.CLong
-instance FromEnv Cty.CSChar     where fromEnv = flip fmap fromEnv Cty.CSChar
-instance FromEnv Cty.CSUSeconds where fromEnv = flip fmap fromEnv Cty.CSUSeconds
-instance FromEnv Cty.CShort     where fromEnv = flip fmap fromEnv Cty.CShort
-instance FromEnv Cty.CSize      where fromEnv = flip fmap fromEnv Cty.CSize
-instance FromEnv Cty.CTime      where fromEnv = flip fmap fromEnv Cty.CTime
-instance FromEnv Cty.CUChar     where fromEnv = flip fmap fromEnv Cty.CUChar
-instance FromEnv Cty.CUInt      where fromEnv = flip fmap fromEnv Cty.CUInt
-instance FromEnv Cty.CUIntPtr   where fromEnv = flip fmap fromEnv Cty.CUIntPtr
-instance FromEnv Cty.CULong     where fromEnv = flip fmap fromEnv Cty.CULong
-instance FromEnv Cty.CUSeconds  where fromEnv = flip fmap fromEnv Cty.CUSeconds
-instance FromEnv Cty.CUShort    where fromEnv = flip fmap fromEnv Cty.CUShort
-instance FromEnv Cty.CWchar     where fromEnv = flip fmap fromEnv Cty.CWchar
-instance FromEnv Posix.CDev     where fromEnv = flip fmap fromEnv Posix.CDev
-instance FromEnv Posix.CGid     where fromEnv = flip fmap fromEnv Posix.CGid
-instance FromEnv Posix.CIno     where fromEnv = flip fmap fromEnv Posix.CIno
-instance FromEnv Posix.CMode    where fromEnv = flip fmap fromEnv Posix.CMode
-instance FromEnv Posix.CNlink   where fromEnv = flip fmap fromEnv Posix.CNlink
-instance FromEnv Posix.COff     where fromEnv = flip fmap fromEnv Posix.COff
-instance FromEnv Posix.CPid     where fromEnv = flip fmap fromEnv Posix.CPid
-instance FromEnv Posix.CUid     where fromEnv = flip fmap fromEnv Posix.CUid
+-- 
+-- I'm not sure these should be added. They're kind of conventionally
+-- useful---for instance, if you'd like to casually take ENV
+-- parameters directly to C libraries being wrapped---but it's a fair
+-- amount of overhead in the library.
+--
+-- So I'm almost universally against their inclusion, but the code is
+-- here for historical interest.
+--
+-- ~ Joseph Abrahamson / 2014 Sept 19
+--
+-- instance FromEnv Cty.CChar      where fromEnv = flip fmap fromEnv Cty.CChar
+-- instance FromEnv Cty.CClock     where fromEnv = flip fmap fromEnv Cty.CClock
+-- instance FromEnv Cty.CDouble    where fromEnv = flip fmap fromEnv Cty.CDouble
+-- instance FromEnv Cty.CFloat     where fromEnv = flip fmap fromEnv Cty.CFloat
+-- instance FromEnv Cty.CInt       where fromEnv = flip fmap fromEnv Cty.CInt
+-- instance FromEnv Cty.CIntPtr    where fromEnv = flip fmap fromEnv Cty.CIntPtr
+-- instance FromEnv Cty.CLLong     where fromEnv = flip fmap fromEnv Cty.CLLong
+-- instance FromEnv Cty.CLong      where fromEnv = flip fmap fromEnv Cty.CLong
+-- instance FromEnv Cty.CSChar     where fromEnv = flip fmap fromEnv Cty.CSChar
+-- instance FromEnv Cty.CSUSeconds where fromEnv = flip fmap fromEnv Cty.CSUSeconds
+-- instance FromEnv Cty.CShort     where fromEnv = flip fmap fromEnv Cty.CShort
+-- instance FromEnv Cty.CSize      where fromEnv = flip fmap fromEnv Cty.CSize
+-- instance FromEnv Cty.CTime      where fromEnv = flip fmap fromEnv Cty.CTime
+-- instance FromEnv Cty.CUChar     where fromEnv = flip fmap fromEnv Cty.CUChar
+-- instance FromEnv Cty.CUInt      where fromEnv = flip fmap fromEnv Cty.CUInt
+-- instance FromEnv Cty.CUIntPtr   where fromEnv = flip fmap fromEnv Cty.CUIntPtr
+-- instance FromEnv Cty.CULong     where fromEnv = flip fmap fromEnv Cty.CULong
+-- instance FromEnv Cty.CUSeconds  where fromEnv = flip fmap fromEnv Cty.CUSeconds
+-- instance FromEnv Cty.CUShort    where fromEnv = flip fmap fromEnv Cty.CUShort
+-- instance FromEnv Cty.CWchar     where fromEnv = flip fmap fromEnv Cty.CWchar
+-- instance FromEnv Posix.CDev     where fromEnv = flip fmap fromEnv Posix.CDev
+-- instance FromEnv Posix.CGid     where fromEnv = flip fmap fromEnv Posix.CGid
+-- instance FromEnv Posix.CIno     where fromEnv = flip fmap fromEnv Posix.CIno
+-- instance FromEnv Posix.CMode    where fromEnv = flip fmap fromEnv Posix.CMode
+-- instance FromEnv Posix.CNlink   where fromEnv = flip fmap fromEnv Posix.CNlink
+-- instance FromEnv Posix.COff     where fromEnv = flip fmap fromEnv Posix.COff
+-- instance FromEnv Posix.CPid     where fromEnv = flip fmap fromEnv Posix.CPid
+-- instance FromEnv Posix.CUid     where fromEnv = flip fmap fromEnv Posix.CUid
 
 -- | List lists, tuples are space-delimited
 instance 
