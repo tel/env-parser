@@ -17,9 +17,9 @@
 -- not considered part of the public interface and thus is subject to
 -- change.
 -- 
--- *References*
+-- /References/
 -- 
--- <http://arxiv.org/abs/1403.0749 /Free Applicative Functors./ Paolo Capriotti, Ambrus Kaposi>
+--   * <http://arxiv.org/abs/1403.0749 "Free Applicative Functors" Paolo Capriotti, Ambrus Kaposi>
 -- 
 module System.Environment.Parser.Internal where
 

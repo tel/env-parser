@@ -14,7 +14,15 @@
 -- the ENV. It may also contain documentation and or default values as
 -- needed, however.
 
-module System.Environment.Parser.Key where
+module System.Environment.Parser.Key (
+
+  -- * Constructing 'Key's
+  Key (Key), SomeKey, key, setDefault, setDoc
+
+  -- * Working with 'Key's
+  , forgetKey, Shown (..), shown, image
+  
+  ) where
 
 import           Data.String
 import           Data.Text (Text)
@@ -23,10 +31,20 @@ import qualified Data.Text as T
 -- | A 'Key' into the environment. May also come with default values
 -- and documentation.
 data Key a
-  = Key !Text                -- ^The name of the key
-        !(Maybe Text)        -- ^A documentation string
-        !(Maybe (Shown a))   -- ^A default value and its depiction
+  = Key {
+      -- | The name of the key
+      _keyName :: Text
+      -- | A default value and its depiction
+    , _defaultValue :: Maybe Text
+      -- | A documentation string
+    , _docString :: Maybe (Shown a)
+    }
   deriving ( Eq, Ord, Show, Functor )
+
+-- | 'Key's which have had their actual default value forgotten. Note:
+-- the 'Shown' form of the default value may have been retained for
+-- documentation purposes.
+type SomeKey = Key ()
 
 -- | The easiest way to construct 'Key' values is using @OverloadedStrings@
 instance IsString (Key a) where

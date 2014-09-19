@@ -13,10 +13,22 @@
 -- Portability : non-portable
 --
 
-module System.Environment.Parser where
+module System.Environment.Parser (
+
+  -- * Constructing parsers
+  Parser, get, get', value, json
+
+  -- * Analyzing and running parsers
+  , runParser, runParser'
+  , testParser, documentParser
+  , Err (..)
+  
+  ) where
 
 import           Control.Applicative
 import           Control.Exception
+import qualified Data.Aeson as A
+import qualified Data.ByteString.Lazy as Sl
 import qualified Data.Foldable as F
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -31,20 +43,36 @@ import           System.Environment.Parser.Internal
 import           System.Environment.Parser.Key
 import           System.Posix.Env.ByteString
 
-data P a where
-  Get :: Key a
-      -- ^ The key: where to look up the values in the ENV
-      -> (Text -> Either String a)
-      -- ^ The mechanism for creating values from ENV text
-      -> P a
+data P a =
+  Get {
+    -- | The key: where to look up the values in the ENV
+      _key :: Key a
+    -- | The mechanism for creating values from ENV text
+    , _parser :: Text -> Either String a
+    }
   deriving Functor
 
+-- | A 'Parser' encodes a sequence of environment lookups used to
+-- construct a configuration value.
 newtype Parser a =
   Parser { unParser :: A P a }
   deriving ( Functor, Applicative )
 
+-- | Pull a value from the environment using its 'FromEnv' encoding
 get :: FromEnv a => Key a -> Parser a
 get = Parser . alift . flip Get parseEnv
+
+-- | Pull a value from the environment using a custom parsing function
+get' :: (Text -> Either String a) -> Key a -> Parser a
+get' p = Parser . alift . flip Get p
+
+-- | Pull a JSON 'A.Value' out of the environment
+value :: Key A.Value -> Parser A.Value
+value = json
+
+-- | Pull a JSON-encoded value out of the environment
+json :: A.FromJSON a => Key a -> Parser a
+json = get' (A.eitherDecode . Sl.fromStrict . Te.encodeUtf8)
 
 data Err
   = Missing
@@ -52,7 +80,7 @@ data Err
   | EncodingError Te.UnicodeException
   deriving ( Eq, Show )
 
-type Lookup a = Collect (Seq (Key (), Err)) a
+type Lookup a = Collect (Seq (SomeKey, Err)) a
 
 failLookup :: Key a -> Err -> Lookup x
 failLookup k err = left (Seq.singleton (forgetKey k, err))
@@ -69,10 +97,8 @@ getEnvT t = do
     Nothing -> Left Missing
     Just a  -> lmap EncodingError (Te.decodeUtf8' a)
 
-runGetIO :: Map Text Text ->
-         -- ^ Overriding map
-          P a ->
-         IO (Lookup a)
+runGetIO :: Map Text Text -- ^ Overriding map
+         -> P a -> IO (Lookup a)
 runGetIO m p@(Get k@(Key n _ mdef) go) = do
   case Map.lookup n m of
     Just a  -> return (parser p a)
@@ -93,27 +119,27 @@ runGetPure m p@(Get k@(Key n _ mdef) go) = do
       Nothing          -> failLookup k Missing
 
 -- | Convert the `Lookup` type to something more naturally palatable
-runLookup :: Lookup a -> Either [(Key (), Err)] a
+runLookup :: Lookup a -> Either [(SomeKey, Err)] a
 runLookup c = case c of
   Cl s -> Left (F.toList s)
   Cr a -> Right a
 
 -- | Execute a 'Parser' lookup up actual values from the environment
 -- only if they are missing from a \"default\" environment mapping.
-runParser' :: Map Text Text -> Parser a -> IO (Either [(Key (), Err)] a)
+runParser' :: Map Text Text -> Parser a -> IO (Either [(SomeKey, Err)] a)
 runParser' m = fmap runLookup . decompose . alower (C . runGetIO m) . unParser
 
 -- | Execute a 'Parser' lookup up actual values from the environment.
-runParser :: Parser a -> IO (Either [(Key (), Err)] a)
+runParser :: Parser a -> IO (Either [(SomeKey, Err)] a)
 runParser = runParser' Map.empty
 
 -- | Test a parser purely using a mock environment 'Map'
-testParser :: Map Text Text -> Parser a -> Either [(Key (), Err)] a
+testParser :: Map Text Text -> Parser a -> Either [(SomeKey, Err)] a
 testParser m = runLookup . alower (runGetPure m) . unParser
 
 -- | Extract the list of keys that will be accessed by running the
 -- 'Parser'.
-documentParser :: Parser a -> [Key ()]
+documentParser :: Parser a -> [SomeKey]
 documentParser
   = F.toList . getConst
   . alower (\(Get k _) -> Const . Seq.singleton . forgetKey $ k)

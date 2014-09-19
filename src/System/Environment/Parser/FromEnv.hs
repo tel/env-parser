@@ -8,7 +8,11 @@
 -- Stability   :  experimental
 -- Portability :  non-portable
 
-module System.Environment.Parser.FromEnv where
+module System.Environment.Parser.FromEnv (
+
+  FromEnv (..)
+  
+  ) where
 
 import           Control.Applicative
 import           Data.Attoparsec.Text (Parser)
@@ -29,6 +33,10 @@ import           Data.Word
 import qualified Foreign.C.Types as Cty
 import qualified System.Posix.Types as Posix
 
+-- | A type which can be converted from some representation in the
+-- environment. The environment is typically a very shallow syntactic
+-- space so these parsers are not necessarily intended to be
+-- unambiguous---see notes on the instance for lists.
 class FromEnv a where
   fromEnv     :: Parser a
 
@@ -106,7 +114,7 @@ instance Integral a => FromEnv (Ratio a) where
 instance FromEnv () where
   fromEnv = At.takeText *> pure ()
 
--- | The lexical space here includes @yes@, @no@, @true@, @false@,
+-- | The syntactic space here includes @yes@, @no@, @true@, @false@,
 -- @1@, and @0@ and is case insensitive.
 instance FromEnv Bool where
   fromEnv =
