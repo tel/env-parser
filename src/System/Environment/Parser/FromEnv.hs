@@ -41,7 +41,7 @@ class FromEnv a where
   fromEnv     :: Parser a
 
   fromEnvList :: Parser [a]
-  fromEnvList = fromEnv
+  fromEnvList = At.sepBy fromEnv (At.takeWhile1 isSpace)
 
   parseEnv :: T.Text -> Either String a
   parseEnv = At.parseOnly fromEnv
@@ -69,7 +69,7 @@ instance FromEnv Char where
 -- exactly flexible, but if you need more than this there's always
 -- JSON.
 instance FromEnv a => FromEnv [a] where
-  fromEnv = At.sepBy fromEnv (At.takeWhile1 isSpace)
+  fromEnv = fromEnvList
 
 instance FromEnv Int        where fromEnv = At.signed At.decimal
 instance FromEnv Integer    where fromEnv = At.signed At.decimal
