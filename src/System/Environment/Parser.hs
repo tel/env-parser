@@ -16,7 +16,7 @@
 module System.Environment.Parser (
 
   -- * Constructing parsers
-  Parser, get, get', value, json
+  Parser, get, get'
 
   -- * Analyzing and running parsers
   , runParser, runParser'
@@ -27,7 +27,6 @@ module System.Environment.Parser (
 
 import           Control.Applicative
 import           Control.Exception
-import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy as Sl
 import qualified Data.Foldable as F
 import           Data.Map (Map)
@@ -60,19 +59,22 @@ newtype Parser a =
 
 -- | Pull a value from the environment using its 'FromEnv' encoding
 get :: FromEnv a => Key a -> Parser a
-get = Parser . alift . flip Get parseEnv
+get = get' parseEnv
 
 -- | Pull a value from the environment using a custom parsing function
+-- 
+-- This exposes a useful general interface for plugging in any kind of
+-- value parsing framework. For instance `get` is written
+-- 
+--     get = get' parseEnv
+-- 
+-- and we an write parsers for JSON values in the environment using
+-- Aeson:
+-- 
+--     json :: Aeson.FromJSON a => Key a -> Parser a
+--     json get' (Aeson.eitherDecode . fromStrict . encodeUtf8)
 get' :: (Text -> Either String a) -> Key a -> Parser a
 get' p = Parser . alift . flip Get p
-
--- | Pull a JSON 'A.Value' out of the environment
-value :: Key A.Value -> Parser A.Value
-value = json
-
--- | Pull a JSON-encoded value out of the environment
-json :: A.FromJSON a => Key a -> Parser a
-json = get' (A.eitherDecode . Sl.fromStrict . Te.encodeUtf8)
 
 data Err
   = Missing
