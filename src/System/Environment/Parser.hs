@@ -26,9 +26,12 @@ module System.Environment.Parser (
   ) where
 
 import           Control.Applicative
+import           Control.Applicative.Lift
 import           Control.Exception
 import qualified Data.ByteString.Lazy as Sl
 import qualified Data.Foldable as F
+import           Data.Functor.Compose
+import           Data.Functor.Constant
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Sequence (Seq)
@@ -82,22 +85,25 @@ data Err
   | EncodingError Te.UnicodeException
   deriving ( Eq, Show )
 
-type Lookup a = Collect (Seq (SomeKey, Err)) a
+type Lookup a = Errors (Seq (SomeKey, Err)) a
 
 failLookup :: Key a -> Err -> Lookup x
-failLookup k err = left (Seq.singleton (forgetKey k, err))
+failLookup k err = failure (Seq.singleton (forgetKey k, err))
 
 parser :: P a -> Text -> Lookup a
 parser (Get k go) text = case go text of
-  Right a  -> right a
+  Right a  -> pure a
   Left err -> failLookup k (ParseError err)
+
+eitherl :: (e -> e') -> Either e a -> Either e' a
+eitherl f = either (Left . f) Right
 
 getEnvT :: Text -> IO (Either Err Text)
 getEnvT t = do
   m <- getEnv (Te.encodeUtf8 t)
   return $ case m of
     Nothing -> Left Missing
-    Just a  -> lmap EncodingError (Te.decodeUtf8' a)
+    Just a  -> eitherl EncodingError (Te.decodeUtf8' a)
 
 runGetIO :: Map Text Text -- ^ Overriding map
          -> P a -> IO (Lookup a)
@@ -109,7 +115,7 @@ runGetIO m p@(Get k@(Key n _ mdef) go) = do
       return $ case t of
         Right a -> parser p a
         Left e  -> case mdef of
-          Just (Shown _ a) -> right a
+          Just (Shown _ a) -> pure a
           Nothing          -> failLookup k e
 
 runGetPure :: Map Text Text -> P a -> Lookup a
@@ -117,19 +123,19 @@ runGetPure m p@(Get k@(Key n _ mdef) go) = do
   case Map.lookup n m of
     Just a  -> parser p a
     Nothing -> case mdef of
-      Just (Shown _ a) -> right a
+      Just (Shown _ a) -> pure a
       Nothing          -> failLookup k Missing
 
 -- | Convert the `Lookup` type to something more naturally palatable
 runLookup :: Lookup a -> Either [(SomeKey, Err)] a
 runLookup c = case c of
-  Cl s -> Left (F.toList s)
-  Cr a -> Right a
+  Other (Constant s) -> Left (F.toList s)
+  Pure a -> Right a
 
 -- | Execute a 'Parser' lookup up actual values from the environment
 -- only if they are missing from a \"default\" environment mapping.
 runParser' :: Map Text Text -> Parser a -> IO (Either [(SomeKey, Err)] a)
-runParser' m = fmap runLookup . decompose . alower (C . runGetIO m) . unParser
+runParser' m = fmap runLookup . getCompose . alower (Compose . runGetIO m) . unParser
 
 -- | Execute a 'Parser' lookup up actual values from the environment.
 runParser :: Parser a -> IO (Either [(SomeKey, Err)] a)
