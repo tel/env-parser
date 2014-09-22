@@ -21,6 +21,7 @@ module System.Environment.Parser (
   -- * Analyzing and running parsers
   , runParser, runParser'
   , testParser, documentParser
+  , ParserReport
   , Err (..)
   
   ) where
@@ -126,23 +127,25 @@ runGetPure m p@(Get k@(Key n _ mdef) go) = do
       Just (Shown _ a) -> pure a
       Nothing          -> failLookup k Missing
 
+type ParserReport = Either [(SomeKey, Err)]
+
 -- | Convert the `Lookup` type to something more naturally palatable
-runLookup :: Lookup a -> Either [(SomeKey, Err)] a
+runLookup :: Lookup a -> ParserReport a
 runLookup c = case c of
   Other (Constant s) -> Left (F.toList s)
   Pure a -> Right a
 
 -- | Execute a 'Parser' lookup up actual values from the environment
 -- only if they are missing from a \"default\" environment mapping.
-runParser' :: Map Text Text -> Parser a -> IO (Either [(SomeKey, Err)] a)
+runParser' :: Map Text Text -> Parser a -> IO (ParserReport a)
 runParser' m = fmap runLookup . getCompose . alower (Compose . runGetIO m) . unParser
 
 -- | Execute a 'Parser' lookup up actual values from the environment.
-runParser :: Parser a -> IO (Either [(SomeKey, Err)] a)
+runParser :: Parser a -> IO (ParserReport a)
 runParser = runParser' Map.empty
 
 -- | Test a parser purely using a mock environment 'Map'
-testParser :: Map Text Text -> Parser a -> Either [(SomeKey, Err)] a
+testParser :: Map Text Text -> Parser a -> ParserReport a
 testParser m = runLookup . alower (runGetPure m) . unParser
 
 -- | Extract the list of keys that will be accessed by running the
