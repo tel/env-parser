@@ -30,8 +30,11 @@ import qualified Data.Text.Encoding as Te
 import qualified Data.Text.Lazy as Tl
 import qualified Data.Text.Lazy.Encoding as Tle
 import           Data.Word
-import qualified Foreign.C.Types as Cty
-import qualified System.Posix.Types as Posix
+
+-- See note below
+-- 
+-- import qualified Foreign.C.Types as Cty
+-- import qualified System.Posix.Types as Posix
 
 -- | A type which can be converted from some representation in the
 -- environment. The environment is typically a very shallow syntactic

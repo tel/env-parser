@@ -23,6 +23,7 @@
 -- 
 module System.Environment.Parser.Internal where
 
+import Data.Functor.Identity
 import Control.Applicative
 import Data.Monoid
 
@@ -53,9 +54,11 @@ alift f = fmap const f :$ Inj ()
 
 -- | Apply an applicative morphism underneath the free
 -- transformer. Could be implemented as
---
---     amorph f = lower (alift . f)
---
+-- 
+-- @
+-- amorph f = lower (alift . f)
+-- @
+-- 
 -- but it would require a 'Functor' constraint on 'g'.
 amorph :: Functor g => (forall x . f x -> g x) -> A f a -> A g a
 amorph _ (Inj x)  = Inj x
@@ -66,3 +69,25 @@ amorph k (h :$ x) = k h :$ amorph k x
 alower :: Applicative g => (forall x . f x -> g x) -> A f a -> g a
 alower _ (Inj x)  = pure x
 alower k (g :$ x) = k g <*> alower k x
+
+--------------------------------------------------------------------------------
+-- Microlens
+
+type O  p s t a b = ((a -> p b) -> (s -> p t))
+type O' p s a     = O p s s a a
+
+view :: O (Const a) s t a b -> (s -> a)
+view l = getConst . l Const
+{-# INLINE view #-}
+
+over :: O Identity s t a b -> (a -> b) -> (s -> t)
+over l f = runIdentity . l (Identity . f)
+{-# INLINE over #-}
+
+set :: O Identity s t a b -> b -> (s -> t)
+set l = over l . const
+{-# INLINE set #-}
+
+preview :: O (Const (First a)) s t a b -> (s -> Maybe a)
+preview l = getFirst . getConst . l (Const . First . Just)
+{-# INLINE preview #-}
