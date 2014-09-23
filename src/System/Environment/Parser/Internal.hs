@@ -21,11 +21,18 @@
 -- 
 --   * <http://arxiv.org/abs/1403.0749 "Free Applicative Functors" Paolo Capriotti, Ambrus Kaposi>
 -- 
-module System.Environment.Parser.Internal where
+module System.Environment.Parser.Internal (
+
+  -- * Free Applicatives
+    A, runA, alift, amorph, alower
+
+  -- * Microlens
+  , view, over, set, O, O'
+  
+  ) where
 
 import Data.Functor.Identity
 import Control.Applicative
-import Data.Monoid
 
 --------------------------------------------------------------------------------
 -- Free Applicative Functors
@@ -87,7 +94,3 @@ over l f = runIdentity . l (Identity . f)
 set :: O Identity s t a b -> b -> (s -> t)
 set l = over l . const
 {-# INLINE set #-}
-
-preview :: O (Const (First a)) s t a b -> (s -> Maybe a)
-preview l = getFirst . getConst . l (Const . First . Just)
-{-# INLINE preview #-}
