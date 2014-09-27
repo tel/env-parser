@@ -1,6 +1,7 @@
-{-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module      : System.Environment.Parser
@@ -11,219 +12,160 @@
 -- Stability   : experimental
 -- Portability : non-portable
 --
--- Functions for building generic environment parsers which provide
--- automatic documentation and easy testing. 
---
--- This module is intended to be imported qualified, for example, we might
--- parse out a Heroku database URL and a base-64 encoded encryption key in
--- the following manner.
---
--- > import qualified System.Environment.Parser          as Env
--- > import qualified System.Environment.Parser.Database as Env
--- > import qualified System.Environment.Parser.Encoded  as Env
--- >
--- > data Config = Config { db :: Env.DBConnection, key :: Env.Base64 }
--- > 
--- > configP :: Parser Config
--- > configP = Config <$> Env.get "DATABASE_URL"
--- >                  <*> Env.get "ENCRYPTION_KEY"
---
--- We can then use that 'Parser' value to attempt to compute a @Config@ in
--- 'IO' and print out the missing and needed variables on failure
---
--- > do cp <- Env.run configP :: IO (Either Errors Config)
--- >    case cp of
--- >      Left errs   -> do
--- >        putStrLn "Missing the following variables: "
--- >        mapM_ putStrLn (Env.missing errs)
--- >        putStrLn "Needs the following variables: "
--- >        mapM_ putStrLn (Env.references (Env.analyze configP))
--- >      Right config -> do
--- >        ...
---
+
 module System.Environment.Parser (
 
-  -- * Basic interface
+  -- * Constructing parsers
+    Parser, get, get'
+  , Key
 
-  -- ** Building a ''Parser'
-
-  Parser
-  
-  , get       -- :: FromEnv a  => String -> Parser a
-  , getParse  -- :: FE.FromEnv a => (a -> Either String b) -> String -> Parser b
-  , json      -- :: FromJSON a => String -> Parser a
-
-  -- *** Annotating a 'Parser'
-  , def       -- :: Show a => a -> Parser a -> Parser a
-  , def'      -- ::           a -> Parser a -> Parser a
-  , doc       -- :: String -> Parser a -> Parser a
-
-  -- * Interpreting a 'Parser'
-    
-  , run       -- :: Parser a -> IO (Either Errors a)
-  , test      -- :: Parser a -> Map.Map String String -> Either Errors a
-  , analyze   -- :: Parser a -> Analysis
-
-  , Errors (..), missing
+  -- * Analyzing and running parsers
+  , runParser, runParser'
+  , testParser, documentParser
+  , Lookup, Errors, errMap, errors
   , Err (..)
-
-  -- ** Analysis and documentation
-  , Analysis (..), references
-
+  
   ) where
 
 import           Control.Applicative
-import qualified Data.Aeson                        as Ae
-import qualified Data.Aeson.Types                  as Ae
+import           Control.Applicative.Lift
 import           Data.Functor.Compose
-import qualified Data.Map                          as Map
-import           Data.Maybe                        (mapMaybe)
-import           Data.Monoid
-import           Data.Foldable                     (toList, foldMap)
-import           Data.Sequence                     ((<|), (|>))
-import qualified Data.Sequence                     as Seq
-import qualified System.Environment.Parser.Class   as Cls
-import qualified System.Environment.Parser.FromEnv as FE
-import           System.Environment.Parser.Miss
+import           Data.Functor.Constant
+import           Data.Functor.Identity
+import           Data.Map (Map)
+import qualified Data.Map as Map
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import           Data.Text (Text)
+import qualified Data.Text.Encoding as Te
+import qualified Data.Text.Encoding.Error as Te
+import           System.Environment.Parser.FromEnv
+import           System.Environment.Parser.Internal
+import           System.Environment.Parser.Key (Key, SomeKey, Shown (..))
+import qualified System.Environment.Parser.Key as Key
+import           System.Posix.Env.ByteString
 
--- -----------------------------------------------------------------------------
--- Error types
+data P a =
+  Get {
+    -- | The key: where to look up the values in the ENV
+      _key :: Key a
+    -- | The mechanism for creating values from ENV text
+    , _parser :: Text -> Either String a
+    }
+  deriving Functor
 
--- | We consider two broad classes of failure: either an environment
--- variable was expected to exist and didn't (it was 'Wanted') or the
--- value failed to validate during parsing and we've 'Joined' an
--- error message from that failed parse.
-data Err = Wanted String | Joined String
-  deriving ( Eq, Ord, Show )
+-- | A 'Parser' encodes a sequence of environment lookups used to
+-- construct a configuration value.
+newtype Parser a =
+  Parser { unParser :: A P a }
+  deriving ( Functor, Applicative )
 
-newtype Errors = Errors { getErrors :: Seq.Seq Err }
-  deriving ( Eq, Ord, Show, Monoid )
+-- | Pull a value from the environment using its 'FromEnv' encoding
+get :: FromEnv a => Key a -> Parser a
+get = get' parseEnv
 
--- | Determine all of the variables which were missing in the environment
--- yet required.
-missing :: Errors -> [String]
-missing = mapMaybe go . toList . getErrors where
-  go (Wanted s) = Just s
-  go (Joined _) = Nothing
+-- | Pull a value from the environment using a custom parsing function
+-- 
+-- This exposes a useful general interface for plugging in any kind of
+-- value parsing framework. For instance `get` is written
+-- 
+-- @
+-- get = get' parseEnv
+-- @
+-- 
+-- and we an write parsers for JSON values in the environment using
+-- Aeson:
+-- 
+-- @
+-- json :: Aeson.FromJSON a => Key a -> Parser a
+-- json get' (Aeson.eitherDecode . fromStrict . encodeUtf8)
+-- @
+get' :: (Text -> Either String a) -> Key a -> Parser a
+get' p = Parser . alift . flip Get p
 
-instance Cls.Satisfiable Errors where
-  wants  = Errors . Seq.singleton . Wanted
-  errors = Errors . Seq.singleton . Joined
-
--- -----------------------------------------------------------------------------
--- Analysis types
-
--- | The 'Analysis' type is a result of running the parser
--- statically. It provides some information about the kind of parse
--- that would be attempted and is thus useful for error messages or
--- manual documentation.
-data Analysis
-  = Succeeding
-  | Wanting     String
-  | Branching   (Seq.Seq Analysis)
-  | Joining     Analysis
-  | Defaulting  String Analysis
-  | Documenting String Analysis
+-- | Three possible, handleable error scenarios arise while reading
+-- from the environment.
+data Err
+  = Missing
+    -- ^ A value was missing from the environment.
+  | ParseError String
+    -- ^ The value was found but could not be parsed according to the
+    -- given parser.
+  | EncodingError Te.UnicodeException
+    -- ^ A value was found but could not be interpreted as UTF-8 text.
   deriving ( Eq, Show )
 
--- | Get each environment varaible the parser wants. This will include
--- ones that may be optional due to default values.
-references :: Analysis -> [String]
-references = toList . foldAnalysis where
-  foldAnalysis Succeeding          = Seq.empty
-  foldAnalysis (Wanting key)       = Seq.singleton key
-  foldAnalysis (Branching ds)      = foldMap foldAnalysis ds
-  foldAnalysis (Joining d)         = foldAnalysis d
-  foldAnalysis (Defaulting _ d)    = foldAnalysis d
-  foldAnalysis (Documenting doc d) = foldAnalysis d
+-- | A reasonably efficient error collection type.
+type Lookup a = Errors (Seq (SomeKey, Err)) a
 
-data Df a = Df { runDf :: Analysis } deriving Functor
+-- | Convert the error type in an 'Errors'.
+errMap :: (e -> e') -> Errors e a -> Errors e' a
+errMap f x = case x of
+  Pure a -> Pure a
+  Other (Constant e) -> Other (Constant (f e))
 
-instance Applicative Df where
-  pure _ = Df Succeeding
-  Df (Branching dfs) <*> Df (Branching dxs) = Df (Branching $ dfs <> dxs)
-  Df (Branching dfs) <*> Df dx              = Df (Branching $ dfs |> dx)
-  Df df              <*> Df (Branching dxs) = Df (Branching $ df <| dxs)
-  Df df              <*> Df dx              = Df (Branching $ Seq.fromList [df, dx])
+-- | Eliminates an 'Errors' type. In order to conver it to an 'Either'
+-- use
+--
+-- @
+-- errors Left Right :: Errors e a -> Either e a
+-- @
+errors :: (e -> c) -> (a -> c) -> (Errors e a -> c)
+errors f g x = case x of
+  Pure a             -> g a
+  Other (Constant e) -> f e
 
-instance Cls.HasEnv Df where
-  getEnv key = Df (Wanting key)
+failure1 :: (Key x, Err) -> Lookup a
+failure1 (k, e) = failure (Seq.singleton (Key.forget k, e))
 
-instance Cls.Env Df where
-  joinFailure (Df dep)   = Df (Joining dep)
-  def a sho (Df dep)     = Df (Defaulting (sho a) dep)
+-- | Given a mechanism for looking up text from the environment, and
+-- possibly failing, extend that lookup to include default value
+-- selection and integrated parsing from a 'P'/'Get' action.
+goGet :: Monad m => (Text -> m (Errors Err Text)) -> P a -> m (Lookup a)
+goGet env (Get k p) = do
+  m0 <- env (view Key.name k)
+  return $ case m0 of
+    Other (Constant Missing) -> case view Key.def' k of
+      Just (Shown _ v) -> pure v
+      Nothing -> failure1 (k, Missing)
+    Other (Constant e) -> failure1 (k, e)
+    Pure t -> case p t of
+      Left  e -> failure1 (k, ParseError e)
+      Right a -> pure a
+    
+getMap :: Map Text Text -> (Text -> Errors Err Text)
+getMap m k = case Map.lookup k m of
+  Nothing -> Other (Constant Missing)
+  Just a  -> Pure a
 
--- -----------------------------------------------------------------------------
--- Parser types
+getEnvT :: Text -> IO (Errors Err Text)
+getEnvT t = do
+  m <- getEnv (Te.encodeUtf8 t)
+  return $ case m of
+    Nothing -> Other (Constant Missing)
+    Just a  -> either (Other . Constant . EncodingError) Pure (Te.decodeUtf8' a)
 
--- | The generic environment 'Parser'. This type is used to specify
--- the structure of a configuration which can be read from the
--- environment. Later that structure can either be examined using
--- 'analyze', tested using 'test', or performed on the actual
--- environment using 'run'.
-data Parser a = Parser
-  { run'     :: Compose IO (Miss Errors) a
-  , test'    :: Compose ((->) (Map.Map String String)) (Miss Errors) a
-  , analyze' :: Df a
-  }
-  deriving ( Functor )
+-- | Execute a 'Parser' lookup up actual values from the environment
+-- only if they are missing from a \"default\" environment mapping.
+runParser' :: Map Text Text -> Parser a -> IO (Lookup a)
+runParser' m = getCompose . alower (Compose . getP m) . unParser where
+  getP mp p =
+    case runIdentity (goGet (pure . getMap mp) p) of
+      Pure a -> return (Pure a)
+      _      -> goGet getEnvT p
 
-instance Applicative Parser where
-  pure a = Parser (pure a) (pure a) (pure a)
-  Parser f1 f2 f3 <*> Parser x1 x2 x3 =
-    Parser (f1 <*> x1) (f2 <*> x2) (f3 <*> x3)
+-- | Execute a 'Parser' lookup up actual values from the environment.
+runParser :: Parser a -> IO (Lookup a)
+runParser = getCompose . alower (Compose . goGet getEnvT) . unParser
 
-instance Cls.HasEnv Parser where
-  getEnv key = Parser (Cls.getEnv key) (Cls.getEnv key) (Cls.getEnv key)
+-- | Test a parser purely using a mock environment 'Map'
+testParser :: Map Text Text -> Parser a -> Lookup a
+testParser m = alower (runIdentity . goGet (pure . getMap m)) . unParser
 
-instance Cls.Env Parser where
-  joinFailure (Parser i1 i2 i3) =
-    Parser (Cls.joinFailure i1) (Cls.joinFailure i2) (Cls.joinFailure i3)
-  def a sho   (Parser i1 i2 i3) =
-    Parser (Cls.def a sho i1) (Cls.def a sho i2) (Cls.def a sho i3)
-
--- | Run a 'Parser' in 'IO' using the actual environment.
-run :: Parser a -> IO (Either Errors a)
-run = fmap toEither . getCompose . run'
-
--- | Run a 'Parser' purely using a 'Map.Map' to simulate the
--- environment.
-test :: Parser a -> Map.Map String String -> Either Errors a
-test = fmap toEither . getCompose . test'
-
--- | Run a completely pure, static analysis of the 'Parser' that can
--- be used to generate helpful documentation.
-analyze :: Parser a -> Analysis
-analyze = runDf . analyze'
-
--- | Pull a value from the environment.
-get :: FE.FromEnv a => String -> Parser a
-get = FE.fromEnv . Cls.getEnv
-
--- | Assign a default value to a 'Parser'. If the parser should fail at
--- runtime the default value will be returned instead. The value must
--- be showable in order to provide documentation.
-def :: Show a => a -> Parser a -> Parser a
-def a = Cls.def a show
-
--- | Assign a default value to a 'Parser'. This is identical to 'def'
--- but does not require the default value has a 'Show'
--- instance---instead a constant descriptive string should be passed
--- directly.
-def' :: a -> String -> Parser a -> Parser a
-def' a str = Cls.def a (const $ "{" ++ str ++ "}")
-
--- | Assign documentation to a branch of the 'Parser'. This can be
--- later retrieved in the 'Analysis' type.
-doc :: String -> Parser a -> Parser a
-doc = Cls.doc
-
--- | Pull a string from the environment and interpret it as a
--- JSON-serializable type.
-json :: Ae.FromJSON a => String -> Parser a
-json = getParse (Ae.parseEither Ae.parseJSON)
-
--- | Pull a value from the environment and attempt to parse it into
--- some other type. Failures will be 'Joined' into the result.
-getParse :: FE.FromEnv a => (a -> Either String b) -> String -> Parser b
-getParse parse key = Cls.joinFailure $ fmap parse $ get key
+-- | Extract the list of keys that will be accessed by running the
+-- 'Parser'.
+documentParser :: Parser a -> Seq SomeKey
+documentParser
+  = getConstant
+  . alower (\(Get k _) -> Constant . Seq.singleton . Key.forget $ k)
+  . unParser

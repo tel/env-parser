@@ -1,159 +1,231 @@
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
--- Module      : System.Environment.Parser.Internal
--- Copyright   : (c) Joseph Abrahamson 2013
--- License     : MIT
---
--- Maintainer  : me@jspha.com
--- Stability   : experimental
--- Portability : non-portable
---
--- Types which can be deserialized from an environment variable.
+-- Module      :  System.Environment.Parser.FromEnv
+-- Copyright   :  (C) 2014 Joseph Abrahamson
+-- License     :  BSD3
+-- Maintainer  :  Joseph Abrahamson <me@jspha.com>
+-- Stability   :  experimental
+-- Portability :  non-portable
 
 module System.Environment.Parser.FromEnv (
 
   FromEnv (..)
-
+  
   ) where
 
 import           Control.Applicative
-import           Control.Monad
-import qualified Data.Aeson                      as Ae
-import qualified Data.Attoparsec.Text            as At
-import qualified Data.ByteString                 as S
-import qualified Data.ByteString.Char8           as S8
-import qualified Data.ByteString.Lazy            as SL
-import qualified Data.ByteString.Lazy.Char8      as SL8
+import           Data.Attoparsec.Text (Parser)
+import qualified Data.Attoparsec.Text as At
+import           Data.Bits
+import qualified Data.ByteString as S
+import qualified Data.ByteString.Lazy as Sl
+import qualified Data.CaseInsensitive as Ci
+import           Data.Char (isSpace)
 import           Data.Int
-import qualified Data.Text                       as T
-import qualified Data.Text.Lazy                  as TL
-import           Data.Time
-import           System.Environment.Parser.Class
-import           System.Locale
+import           Data.Ratio
+import           Data.Scientific
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as Te
+import qualified Data.Text.Lazy as Tl
+import qualified Data.Text.Lazy.Encoding as Tle
+import           Data.Word
 
--- | Types instantiatiating 'FromEnv' can be deserialized from the
--- environment directly.
+-- See note below
+-- 
+-- import qualified Foreign.C.Types as Cty
+-- import qualified System.Posix.Types as Posix
+
+-- | A type which can be converted from some representation in the
+-- environment. The environment is typically a very shallow syntactic
+-- space so these parsers are not necessarily intended to be
+-- unambiguous---see notes on the instance for lists.
 class FromEnv a where
-  parseEnv :: String -> Either String a
+  fromEnv     :: Parser a
 
-  -- | For this most part this should be left as default. It's useful for
-  -- introducing non-failing parsers, though.
-  fromEnv :: Env r => r String -> r a
-  fromEnv = joinFailure . fmap parseEnv
+  fromEnvList :: Parser [a]
+  fromEnvList = At.sepBy fromEnv (At.takeWhile1 isSpace)
 
-
-instance FromEnv String where
-  parseEnv = Right
-  fromEnv = id
-
-instance FromEnv S.ByteString where
-  parseEnv s = Right (S8.pack s)
-  fromEnv = fmap S8.pack
-
-instance FromEnv SL.ByteString where
-  parseEnv s = Right (SL8.pack s)
-  fromEnv = fmap SL8.pack
+  parseEnv :: T.Text -> Either String a
+  parseEnv = At.parseOnly fromEnv
 
 instance FromEnv T.Text where
-  parseEnv s = Right (T.pack s)
-  fromEnv = fmap T.pack
+  fromEnv = At.takeText
 
-instance FromEnv TL.Text where
-  parseEnv s = Right (TL.pack s)
-  fromEnv = fmap TL.pack
+instance FromEnv Tl.Text where
+  fromEnv = At.takeLazyText
 
-integralEnv :: Integral a => String -> Either String a
-integralEnv s = do
-  txt <- parseEnv s
-  At.parseOnly (At.signed At.decimal) txt where
+instance FromEnv S.ByteString where
+  fromEnv = fmap Te.encodeUtf8 fromEnv
 
-instance FromEnv Int     where parseEnv = integralEnv
-instance FromEnv Integer where parseEnv = integralEnv
-instance FromEnv Int8    where parseEnv = integralEnv
-instance FromEnv Int64   where parseEnv = integralEnv
-instance FromEnv Int32   where parseEnv = integralEnv
-instance FromEnv Int16   where parseEnv = integralEnv
+instance FromEnv Sl.ByteString where
+  fromEnv = fmap Tle.encodeUtf8 fromEnv
 
-instance FromEnv Double where
-  parseEnv s = do
-    txt <- parseEnv s
-    At.parseOnly (At.signed At.double) txt
+instance (Ci.FoldCase s, FromEnv s) => FromEnv (Ci.CI s) where
+  fromEnv = fmap Ci.mk fromEnv
 
-instance FromEnv At.Number where
-  parseEnv s = do
-    txt <- parseEnv s
-    At.parseOnly (At.signed At.number) txt
+instance FromEnv Char where
+  fromEnv = At.anyChar
+  fromEnvList = fmap T.unpack fromEnv
 
--- ----------------------------------------------------------------------------
--- Time parsers
+-- | Follows Bash conventions and assumes space delimited lists. Not
+-- exactly flexible, but if you need more than this there's always
+-- JSON.
+instance FromEnv a => FromEnv [a] where
+  fromEnv = fromEnvList
+
+instance FromEnv Int        where fromEnv = At.signed At.decimal
+instance FromEnv Integer    where fromEnv = At.signed At.decimal
+instance FromEnv Int8       where fromEnv = At.signed At.decimal
+instance FromEnv Int16      where fromEnv = At.signed At.decimal
+instance FromEnv Int32      where fromEnv = At.signed At.decimal
+instance FromEnv Int64      where fromEnv = At.signed At.decimal
+instance FromEnv Double     where fromEnv = At.signed At.rational
+instance FromEnv Float      where fromEnv = At.signed At.rational
+instance FromEnv Scientific where fromEnv = At.signed At.rational
+
+byteWidth :: (Integral a, Bits a) => Int -> At.Parser a
+byteWidth n = do
+  feed <- At.take n
+  case At.parseOnly At.hexadecimal feed of
+    Left err -> fail err
+    Right a  -> return a
+
+instance FromEnv Word8      where fromEnv = byteWidth 2
+instance FromEnv Word16     where fromEnv = byteWidth 4
+instance FromEnv Word32     where fromEnv = byteWidth 8
+instance FromEnv Word64     where fromEnv = byteWidth 16
+
+-- | Parses a syntax like
 --
--- These may not always be the most apropriate formats for parsing time,
--- but customer parser can always be appended as needed. Instead, these
--- provide convention.
-
--- | Interprets a string as a decimal number of seconds
-instance FromEnv DiffTime where
-  parseEnv s =
-    realToFrac <$> (parseEnv s :: Either String At.Number)
-
--- | Interprets a string as a decimal number of seconds
-instance FromEnv NominalDiffTime where
-  parseEnv s =
-    realToFrac <$> (parseEnv s :: Either String At.Number)
-
--- | Assumes first that the date is formatted as the W3C Profile of ISO
--- 8601 but also implements a few other formats.
+-- > 16/3
+-- > 254/13
+-- > -12/7
 --
--- > %Y-%m-%dT%H:%M:%S%Q%z
--- >
--- > 1997-07-16T19:20:30.45+01:00
--- > 1997-07-16T19:20:30.45Z
--- > 1997-07-16T19:20:30Z
---
--- > %a %b %_d %H:%M:%S %z %Y
--- >
--- > Sat Jan 18 22:20:02 +0000 2014
--- > Sat Jan 18 22:20:02 2014
--- > Jan 18 22:20:02 2014
---
-instance FromEnv UTCTime where
-  parseEnv s =
-    e "bad UTC time"
-    $ msum $ map (\format -> parseTime defaultTimeLocale format s) formats
+-- Note that spaces are not allowed between the numerator, the @'/'@, and
+-- the denominator.
+instance Integral a => FromEnv (Ratio a) where
+  fromEnv = (%) <$> At.signed At.decimal
+                <*> ( (At.char '/' *> At.decimal)
+                      <|>
+                      pure 1 )
 
-    where
-      formats =
-        [ "%Y-%m-%dT%H:%M:%S%Q%z"
-        , "%Y-%m-%dT%H:%M:%S%QZ"
-        , "%a %b %_d %H:%M:%S %z %Y"
-        , "%a %b %_d %H:%M:%S %Y"
-        , "%b %_d %H:%M:%S %Y"
+-- | Consumes the entire input and ignores it. Note that this forms a big
+-- distinction between the parse and the lookup---a lookup will still fail
+-- for this type if the variable is not set... but if it is set then the
+-- parse will always succeed.
+instance FromEnv () where
+  fromEnv = At.takeText *> pure ()
+
+-- | The syntactic space here includes @yes@, @no@, @true@, @false@,
+-- @1@, and @0@ and is case insensitive.
+instance FromEnv Bool where
+  fromEnv =
+    At.choice . map (\(n, v) -> At.asciiCI n *> pure v)
+      $ [ ("true",  True)
+        , ("false", False)
+        , ("yes",   True)
+        , ("no",    False)
+        , ("1",     True)
+        , ("0",     False)
         ]
 
--- | Parses the Gregorian calendar format @\"%Y-%m-%d\"@.
-instance FromEnv Day where
-  parseEnv s =
-    e "bad date" $ parseTime defaultTimeLocale "%Y-%m-%d" s
-
-
--- ----------------------------------------------------------------------------
--- JSON Parsers
+-- 
+-- I'm not sure these should be added. They're kind of conventionally
+-- useful---for instance, if you'd like to casually take ENV
+-- parameters directly to C libraries being wrapped---but it's a fair
+-- amount of overhead in the library.
 --
--- JSON is such a convenient format that it might be conceivably jammed
--- into an environment variable. Since Aeson will soon be in the Haskell
--- platform we'll go ahead and include some obvious default instances for
--- Aeson Value types along with a nice general parser.
+-- So I'm almost universally against their inclusion, but the code is
+-- here for historical interest.
+--
+-- ~ Joseph Abrahamson / 2014 Sept 19
+--
+-- instance FromEnv Cty.CChar      where fromEnv = flip fmap fromEnv Cty.CChar
+-- instance FromEnv Cty.CClock     where fromEnv = flip fmap fromEnv Cty.CClock
+-- instance FromEnv Cty.CDouble    where fromEnv = flip fmap fromEnv Cty.CDouble
+-- instance FromEnv Cty.CFloat     where fromEnv = flip fmap fromEnv Cty.CFloat
+-- instance FromEnv Cty.CInt       where fromEnv = flip fmap fromEnv Cty.CInt
+-- instance FromEnv Cty.CIntPtr    where fromEnv = flip fmap fromEnv Cty.CIntPtr
+-- instance FromEnv Cty.CLLong     where fromEnv = flip fmap fromEnv Cty.CLLong
+-- instance FromEnv Cty.CLong      where fromEnv = flip fmap fromEnv Cty.CLong
+-- instance FromEnv Cty.CSChar     where fromEnv = flip fmap fromEnv Cty.CSChar
+-- instance FromEnv Cty.CSUSeconds where fromEnv = flip fmap fromEnv Cty.CSUSeconds
+-- instance FromEnv Cty.CShort     where fromEnv = flip fmap fromEnv Cty.CShort
+-- instance FromEnv Cty.CSize      where fromEnv = flip fmap fromEnv Cty.CSize
+-- instance FromEnv Cty.CTime      where fromEnv = flip fmap fromEnv Cty.CTime
+-- instance FromEnv Cty.CUChar     where fromEnv = flip fmap fromEnv Cty.CUChar
+-- instance FromEnv Cty.CUInt      where fromEnv = flip fmap fromEnv Cty.CUInt
+-- instance FromEnv Cty.CUIntPtr   where fromEnv = flip fmap fromEnv Cty.CUIntPtr
+-- instance FromEnv Cty.CULong     where fromEnv = flip fmap fromEnv Cty.CULong
+-- instance FromEnv Cty.CUSeconds  where fromEnv = flip fmap fromEnv Cty.CUSeconds
+-- instance FromEnv Cty.CUShort    where fromEnv = flip fmap fromEnv Cty.CUShort
+-- instance FromEnv Cty.CWchar     where fromEnv = flip fmap fromEnv Cty.CWchar
+-- instance FromEnv Posix.CDev     where fromEnv = flip fmap fromEnv Posix.CDev
+-- instance FromEnv Posix.CGid     where fromEnv = flip fmap fromEnv Posix.CGid
+-- instance FromEnv Posix.CIno     where fromEnv = flip fmap fromEnv Posix.CIno
+-- instance FromEnv Posix.CMode    where fromEnv = flip fmap fromEnv Posix.CMode
+-- instance FromEnv Posix.CNlink   where fromEnv = flip fmap fromEnv Posix.CNlink
+-- instance FromEnv Posix.COff     where fromEnv = flip fmap fromEnv Posix.COff
+-- instance FromEnv Posix.CPid     where fromEnv = flip fmap fromEnv Posix.CPid
+-- instance FromEnv Posix.CUid     where fromEnv = flip fmap fromEnv Posix.CUid
 
-instance FromEnv Ae.Value where
-  parseEnv s = do
-    bs <- parseEnv s
-    Ae.eitherDecodeStrict bs
+-- | List lists, tuples are space-delimited
+instance 
+  ( FromEnv a
+  , FromEnv b 
+  ) => FromEnv (a, b) 
+    where 
+  fromEnv = (,) <$> fromEnv <*> (At.takeWhile1 isSpace *> fromEnv)
 
--- ----------------------------------------------------------------------------
--- Utilities
+instance
+  ( FromEnv a
+  , FromEnv b 
+  , FromEnv c 
+  ) => FromEnv (a, b, c) 
+    where 
+  fromEnv = (,,) 
+    <$> fromEnv <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
 
-e :: String -> Maybe a -> Either String a
-e s Nothing  = Left s
-e _ (Just a) = Right a
+instance
+  ( FromEnv a
+  , FromEnv b 
+  , FromEnv c 
+  , FromEnv d
+  ) => FromEnv (a, b, c, d) 
+    where 
+  fromEnv = (,,,)
+    <$> fromEnv <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
+
+instance
+  ( FromEnv a
+  , FromEnv b 
+  , FromEnv c 
+  , FromEnv d
+  , FromEnv e
+  ) => FromEnv (a, b, c, d, e) 
+    where 
+  fromEnv = (,,,,)
+    <$> fromEnv <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
+
+instance
+  ( FromEnv a
+  , FromEnv b 
+  , FromEnv c 
+  , FromEnv d
+  , FromEnv e
+  , FromEnv f
+  ) => FromEnv (a, b, c, d, e, f) 
+    where 
+  fromEnv = (,,,,,) 
+    <$> fromEnv <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
+                <*> (At.takeWhile1 isSpace *> fromEnv)
