@@ -30,10 +30,11 @@ module System.Environment.Parser.Key (
   
   ) where
 
-import           Control.Applicative
-import           Data.String
-import           Data.Text (Text)
-import           System.Environment.Parser.MicroLens
+import Control.Applicative
+import Control.Monad
+import Data.String
+import Data.Text (Text)
+import System.Environment.Parser.MicroLens
 
 -- | A 'Key' into the environment. May also come with default values
 -- and documentation. The best way to construct a 'Key' is to use
@@ -51,7 +52,7 @@ type SomeKey = Key ()
 
 -- | Forgets the default value stored in the 'Key' if one exists.
 forget :: Key a -> Key ()
-forget = over def' (fmap (fmap (const ())))
+forget = over def' (fmap void)
 {-# INLINE forget #-}
 
 -- | The easiest way to construct 'Key' values is using @OverloadedStrings@
@@ -70,7 +71,7 @@ make t = Key t Nothing Nothing
 -- imports this module directly.
 
 -- | Lens over the 'name' the 'Key' points to
-name :: Functor f => (Text -> f Text) -> (Key a -> f (Key a))
+name :: Functor f => (Text -> f Text) -> Key a -> f (Key a)
 name inj (Key n v d) = (\n' -> Key n' v d) <$> inj n
 {-# INLINE name #-}
 
@@ -80,13 +81,13 @@ setName = set name
 
 -- | Lens over the default value the 'Key' takes. Allows more fine
 -- modification of the 'Shown' value.
-def' :: Functor f => (Maybe (Shown a) -> f (Maybe (Shown b))) -> (Key a -> f (Key b))
+def' :: Functor f => (Maybe (Shown a) -> f (Maybe (Shown b))) -> Key a -> f (Key b)
 def' inj (Key n v d) = (\v' -> Key n v' d) <$> inj v
 {-# INLINE def' #-}
 
 -- | Lens over the default value the 'Key' takes. Setting this value
 -- via this lens updates the 'Shown' value.
-def :: (Functor f, Show b) => (Maybe a -> f (Maybe b)) -> (Key a -> f (Key b))
+def :: (Functor f, Show b) => (Maybe a -> f (Maybe b)) -> Key a -> f (Key b)
 def inj (Key n v d) =
   (\v' -> Key n (shown <$> v') d)
   <$>

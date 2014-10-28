@@ -1,8 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 -- Module      : System.Environment.Parser
@@ -30,9 +27,7 @@ module System.Environment.Parser (
 
 import           Control.Applicative
 import           Control.Applicative.Lift
-import           Data.Functor.Compose
 import           Data.Functor.Constant
-import           Data.Functor.Identity
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Monoid
@@ -110,7 +105,7 @@ get' par k = Parser {..} where
   runIO mp = do
     mv <- getEnv (Te.encodeUtf8 $ view Key.name k)
     return $ case mv of
-      Nothing -> (runPure mp)
+      Nothing -> runPure mp
       Just bs -> case Te.decodeUtf8' bs of
         Left err -> failure1 k (EncodingError err)
         Right t  -> case par t of
@@ -143,7 +138,7 @@ errMap f x = case x of
 -- @
 -- errors Left Right :: Errors e a -> Either e a
 -- @
-errors :: (e -> c) -> (a -> c) -> (Errors e a -> c)
+errors :: (e -> c) -> (a -> c) -> Errors e a -> c
 errors f g x = case x of
   Pure a             -> g a
   Other (Constant e) -> f e

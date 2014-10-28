@@ -1,0 +1,8 @@
+{
+  "linters": {
+    "hlint": {
+      "type": "hlint",
+      "include": "(\\.hs$)"
+    }
+  }
+}
