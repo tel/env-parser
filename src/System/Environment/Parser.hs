@@ -35,6 +35,7 @@ import           Data.Functor.Constant
 import           Data.Functor.Identity
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Monoid
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Text (Text)
@@ -68,6 +69,18 @@ data Parser a =
   , runPure :: Map Text Text -> Lookup a
   , runDocs :: Seq SomeKey
   } deriving Functor
+
+instance Applicative Parser where
+  pure a = Parser {..} where
+    runIO   _ = pure (pure a)
+    runPure _ = pure a
+    runDocs   = mempty
+  pf <*> px =
+    Parser
+    { runIO   = \mp -> liftA2 (<*>) (runIO pf mp) (runIO px mp)
+    , runPure = \mp -> runPure pf mp <*> runPure px mp
+    , runDocs = runDocs pf <> runDocs px
+    }
 
 --------------------------------------------------------------------------------
 
@@ -144,7 +157,7 @@ run' = flip runIO
 
 -- | Execute a 'Parser' lookup up actual values from the environment.
 run :: Parser a -> IO (Lookup a)
-run = flip runIO Map.empty
+run = flip runIO mempty
 
 -- | Test a parser purely using a mock environment 'Map'
 test :: Map Text Text -> Parser a -> Lookup a
