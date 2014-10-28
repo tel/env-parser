@@ -33,7 +33,7 @@ module System.Environment.Parser.Key (
 import           Control.Applicative
 import           Data.String
 import           Data.Text (Text)
-import           System.Environment.Parser.Internal
+import           System.Environment.Parser.MicroLens
 
 -- | A 'Key' into the environment. May also come with default values
 -- and documentation. The best way to construct a 'Key' is to use

@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -40,9 +41,9 @@ import           Data.Text (Text)
 import qualified Data.Text.Encoding as Te
 import qualified Data.Text.Encoding.Error as Te
 import           System.Environment.Parser.FromEnv
-import           System.Environment.Parser.Internal
 import           System.Environment.Parser.Key (Key, SomeKey, Shown (..))
 import qualified System.Environment.Parser.Key as Key
+import           System.Environment.Parser.MicroLens
 import           System.Posix.Env.ByteString
 
 -- | An 'Either' analogue, but which accumulates monoidal errors for
@@ -72,7 +73,7 @@ data Parser a =
 
 -- | Pull a value from the environment using its 'FromEnv' encoding
 get :: FromEnv a => Key a -> Parser a
-get = error "todo"
+get = get' parseEnv
 
 -- | Pull a value from the environment using a custom parsing function
 -- 
@@ -91,7 +92,29 @@ get = error "todo"
 -- json get' (Aeson.eitherDecode . fromStrict . encodeUtf8)
 -- @
 get' :: (Text -> Either String a) -> Key a -> Parser a
-get' = error "todo"
+get' par k = Parser {..} where
+  -- runIO :: Map Text Text -> IO (Lookup a)
+  runIO mp = do
+    mv <- getEnv (Te.encodeUtf8 $ view Key.name k)
+    return $ case mv of
+      Nothing -> (runPure mp)
+      Just bs -> case Te.decodeUtf8' bs of
+        Left err -> failure1 k (EncodingError err)
+        Right t  -> case par t of
+          Left err -> failure1 k (ParseError err)
+          Right v  -> pure v
+  -- runPure :: Map Text Text -> Lookup a
+  runPure mp = case Map.lookup (view Key.name k) mp of
+    Nothing -> case view Key.def' k of
+      Nothing          -> failure1 k Missing
+      Just (Shown _ v) -> pure v
+    Just t -> case par t of
+      Left err -> failure1 k (ParseError err)
+      Right v  -> pure v
+  runDocs = Seq.singleton (Key.forget k)
+
+failure1 :: Key a1 -> t -> Errors (Seq (Key (), t)) a
+failure1 k e = failure (Seq.singleton (Key.forget k, e))
 
 --------------------------------------------------------------------------------
 

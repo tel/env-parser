@@ -36,8 +36,9 @@ library
   exposed-modules:     
     System.Environment.Parser
     System.Environment.Parser.FromEnv
-    System.Environment.Parser.Internal
     System.Environment.Parser.Key
+  other-modules:
+    System.Environment.Parser.MicroLens
   build-depends:       
       base              >= 4.7      &&   < 4.8
     , attoparsec        == 0.10.4.0 &&   < 0.13
