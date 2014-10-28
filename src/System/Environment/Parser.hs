@@ -71,12 +71,12 @@ data Parser a =
   } deriving Functor
 
 instance Applicative Parser where
-  pure a = Parser {..} where
-    runIO   _ = pure (pure a)
-    runPure _ = pure a
-    runDocs   = mempty
-  pf <*> px =
-    Parser
+  pure a = Parser
+    { runIO   = \_ -> pure (pure a)
+    , runPure = \_ -> pure a
+    , runDocs = mempty
+    } 
+  pf <*> px = Parser
     { runIO   = \mp -> liftA2 (<*>) (runIO pf mp) (runIO px mp)
     , runPure = \mp -> runPure pf mp <*> runPure px mp
     , runDocs = runDocs pf <> runDocs px
